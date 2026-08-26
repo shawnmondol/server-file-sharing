@@ -1,0 +1,20 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secrets and local configuration — never commit these
+.env
+.env.*
+!.env.example
+
+# Runtime state
+data/
+cache/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# OS noise
+.DS_Store
+Thumbs.db

@@ -1,0 +1,140 @@
+@import 'tailwindcss';
+
+/*
+ * Apple-flavoured tokens, matching the mockup's macOS/iOS palette. Every
+ * colour is defined here in light form and re-declared under the dark media
+ * query, so no component hard-codes a hex value.
+ */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica,
+    system-ui, sans-serif;
+}
+
+:root {
+  --surface: #ffffff;
+  --surface-raised: #f7f7f9;
+  --surface-sunken: #f5f5f7;
+  --surface-hover: #f0f0f3;
+  --border: #d2d2d7;
+  --border-subtle: #ececef;
+  --text: #1d1d1f;
+  --text-muted: #86868b;
+  --text-faint: #a1a1a6;
+  --accent: #0071e3;
+  --accent-soft: #e8f1fd;
+  --danger: #ff3b30;
+  --danger-soft: #ffeceb;
+  --success: #30d158;
+  --warning: #ff9f0a;
+  --warning-soft: #fff8ec;
+  --warning-border: #f0dcb4;
+  --warning-text: #8a5a00;
+  --placeholder: #ececed;
+  --shadow-sheet: 0 22px 50px rgba(0, 0, 0, 0.28);
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #1c1c1e;
+    --surface-raised: #242426;
+    --surface-sunken: #131315;
+    --surface-hover: #2c2c2e;
+    --border: #3a3a3c;
+    --border-subtle: #2c2c2e;
+    --text: #f5f5f7;
+    --text-muted: #98989d;
+    --text-faint: #7c7c80;
+    --accent: #0a84ff;
+    --accent-soft: #0a2540;
+    --danger: #ff453a;
+    --danger-soft: #3a1614;
+    --success: #32d74b;
+    --warning: #ffd60a;
+    --warning-soft: #2e2410;
+    --warning-border: #4a3c14;
+    --warning-text: #f5c451;
+    --placeholder: #2c2c2e;
+    --shadow-sheet: 0 22px 50px rgba(0, 0, 0, 0.6);
+
+    color-scheme: dark;
+  }
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-sunken);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* Stop iOS rubber-banding the whole page behind the standalone shell. */
+  overscroll-behavior-y: none;
+}
+
+/* Native-feeling momentum scroll inside panes rather than on the document. */
+.scroll-pane {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Thin scrollbars so the inspector does not jump when content overflows. */
+.scroll-pane::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+.scroll-pane::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-faint) 45%, transparent);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* Every tap target in the mobile layout clears Apple's 44pt guidance. */
+button {
+  font: inherit;
+  color: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-sheet {
+  animation: sheet-in 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-fade {
+  animation: fade-in 0.18s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet,
+  .animate-fade {
+    animation: none;
+  }
+}

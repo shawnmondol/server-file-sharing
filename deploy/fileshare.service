@@ -1,0 +1,51 @@
+# Systemd unit for the file share.
+#
+# Install:
+#   sudo cp deploy/fileshare.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now fileshare
+#
+# Adjust User, WorkingDirectory, and ReadWritePaths if you do not run as `pi`
+# or you cloned somewhere other than ~/apps/server-file-sharing.
+
+[Unit]
+Description=Shared Files
+Documentation=https://github.com/shawnmondol/server-file-sharing
+# tailscaled must be up first: it fronts this service and supplies the caller
+# identity the app authenticates on.
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/home/pi/apps/server-file-sharing
+
+# Configuration comes from the .env file in WorkingDirectory, which the app
+# loads itself. Nothing secret belongs in this unit.
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/node server/dist/index.js
+
+Restart=on-failure
+RestartSec=5
+# Give in-flight uploads a chance to finish before the process is killed.
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fileshare
+
+# --- Hardening -------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
