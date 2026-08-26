@@ -77,14 +77,25 @@ npm start
 ```
 
 The app listens on `127.0.0.1:8081`. That is deliberate — see
-[Security model](#security-model). Publish it to the tailnet:
+[Security model](#security-model). Publish it to the tailnet — but check what is
+already mapped first:
+
+```bash
+tailscale serve status         # anything already on 443?
+```
+
+If that prints nothing, 443 is free:
 
 ```bash
 sudo tailscale serve --bg --https 443 http://127.0.0.1:8081
 tailscale serve status         # prints the https://<host>.<tailnet>.ts.net URL
 ```
 
-Open that URL from any device on your tailnet.
+If it already shows a `/ proxy` line, **stop** — that port is taken, and the
+command above would silently take it over. See
+[Running alongside another app](#running-alongside-another-app).
+
+Open the URL `status` prints from any device on your tailnet.
 
 ### Running alongside another app
 
@@ -99,13 +110,27 @@ rather than failing with a bare `EADDRINUSE`.
 sudo lsof -nP -iTCP -sTCP:LISTEN     # what is already listening
 ```
 
-**The tailnet front door.** `tailscale serve` config is per-node and additive,
-so adding this app does not disturb an existing one. Tailscale terminates TLS on
-ports 443, 8443, and 10000. If another app already holds 443, give this one 8443:
+**The tailnet front door.** Tailscale terminates TLS on ports 443, 8443, and
+10000, and a node can map all three at once. What it will *not* do is warn you
+before overwriting: `tailscale serve --https 443 <target>` claims the root path
+on 443, and if another app was already there its mapping is replaced with no
+prompt and no error. Always read `tailscale serve status` first.
+
+So if another app already holds 443, give this one 8443 rather than retargeting
+443:
 
 ```bash
+tailscale serve status               # read this BEFORE serving
 sudo tailscale serve --bg --https 8443 http://127.0.0.1:8081
-tailscale serve status               # shows every mapping on this node
+tailscale serve status               # should now list both mappings
+```
+
+Recovering from an accidental overwrite is just pointing the port back at the
+original app — no data is lost, and the displaced app keeps running on its local
+port the whole time:
+
+```bash
+sudo tailscale serve --bg --https 443 http://127.0.0.1:<original-port>
 ```
 
 Prefer a second port over mounting both apps under one hostname with
