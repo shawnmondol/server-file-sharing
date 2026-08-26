@@ -66,7 +66,7 @@ fs.mkdirSync(dataDir, { recursive: true });
 
 export const config = {
   host: str('HOST', '127.0.0.1'),
-  port: int('PORT', 8080),
+  port: int('PORT', 8081),
   isProduction: str('NODE_ENV', 'development') === 'production',
 
   shareRoot,

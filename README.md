@@ -64,7 +64,7 @@ On the Pi:
 ## Setup
 
 ```bash
-git clone https://github.com/shawnmondol/server-file-sharing.git ~/apps/server-file-sharing
+git clone https://github.com/shawnmondol/server-file-sharing.git 
 cd ~/apps/server-file-sharing
 
 npm install
@@ -76,15 +76,47 @@ npm run build
 npm start
 ```
 
-The app listens on `127.0.0.1:8080`. That is deliberate — see
+The app listens on `127.0.0.1:8081`. That is deliberate — see
 [Security model](#security-model). Publish it to the tailnet:
 
 ```bash
-sudo tailscale serve --bg --https 443 http://127.0.0.1:8080
+sudo tailscale serve --bg --https 443 http://127.0.0.1:8081
 tailscale serve status         # prints the https://<host>.<tailnet>.ts.net URL
 ```
 
 Open that URL from any device on your tailnet.
+
+### Running alongside another app
+
+A Pi usually ends up hosting more than one thing. Two slots can collide, and
+they are independent of each other:
+
+**The loopback port.** `PORT` defaults to `8081`. If something else already has
+it, pick another and set it in `.env` — the server names the conflict on startup
+rather than failing with a bare `EADDRINUSE`.
+
+```bash
+sudo lsof -nP -iTCP -sTCP:LISTEN     # what is already listening
+```
+
+**The tailnet front door.** `tailscale serve` config is per-node and additive,
+so adding this app does not disturb an existing one. Tailscale terminates TLS on
+ports 443, 8443, and 10000. If another app already holds 443, give this one 8443:
+
+```bash
+sudo tailscale serve --bg --https 8443 http://127.0.0.1:8081
+tailscale serve status               # shows every mapping on this node
+```
+
+Prefer a second port over mounting both apps under one hostname with
+`--set-path`. `host:port` is a distinct browser origin, so the two apps get
+separate storage and — the part that actually bites — separate service worker
+scopes. This app registers a worker at scope `/` with a navigation fallback,
+which on a shared origin would intercept navigations meant for the other app.
+
+> **Do not run `tailscale serve reset`.** It clears the node's entire serve
+> config, including whatever else you are hosting. To remove just this app:
+> `sudo tailscale serve --https 8443 off`.
 
 ### Run it as a service
 
@@ -133,7 +165,7 @@ edit it in place, and never commit the copy.
 | Variable | Default | Notes |
 | --- | --- | --- |
 | `HOST` | `127.0.0.1` | Leave on loopback. `tailscale serve` reaches it there. |
-| `PORT` | `8080` | |
+| `PORT` | `8081` | Any free loopback port. See [Running alongside another app](#running-alongside-another-app). |
 | `NODE_ENV` | `development` | Set to `production` on the Pi (the systemd unit does). |
 | `SHARE_ROOT` | `~/Documents/SharedFiles` | The library. Everything is confined to it. |
 | `DATA_DIR` | `~/.local/share/fileshare` | Thumbnails and the SQLite index. Must be outside `SHARE_ROOT`; the app refuses to start otherwise. |
@@ -195,8 +227,8 @@ exception that might name internal paths.
 
 ```bash
 npm install
-npm run dev:server     # API on :8080, watch mode
-npm run dev:web        # Vite on :5173, proxies /api to :8080
+npm run dev:server     # API on :8081, watch mode
+npm run dev:web        # Vite on :5173, proxies /api to :8081
 ```
 
 For local development set `AUTH_MODE=none` in `.env` so requests are not rejected

@@ -130,6 +130,16 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 try {
   await start();
 } catch (error) {
-  app.log.error({ err: error }, 'failed to start');
+  // A busy port is the one startup failure people actually hit — usually
+  // another self-hosted app on the same Pi — so name the fix rather than
+  // leaving them to decode an EADDRINUSE stack.
+  if ((error as NodeJS.ErrnoException).code === 'EADDRINUSE') {
+    app.log.error(
+      `Port ${config.port} on ${config.host} is already in use by another process. ` +
+        'Set PORT in .env to a free port, then point `tailscale serve` at the new one.',
+    );
+  } else {
+    app.log.error({ err: error }, 'failed to start');
+  }
   process.exit(1);
 }
