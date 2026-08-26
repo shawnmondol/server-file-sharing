@@ -143,6 +143,82 @@ which on a shared origin would intercept navigations meant for the other app.
 > config, including whatever else you are hosting. To remove just this app:
 > `sudo tailscale serve --https 8443 off`.
 
+### Giving each app its own hostname
+
+A second port works, but `https://files.<tailnet>.ts.net` reads better than a
+port suffix — and separate hostnames mean separate browser origins, which keeps
+each app's cookies, storage, and service worker scope to itself.
+
+Tailscale Services do this: each service gets its own virtual IP and DNS name
+while every app keeps running on the same Pi. Nothing in this app changes — it
+stays mounted at `/` on its own hostname.
+
+The prerequisites are not obvious from the error messages, and they have to be
+done in this order:
+
+**1. The host must be a tagged node.** An untagged, user-owned machine cannot
+host a service — `tailscale serve --service=…` fails with `service hosts must be
+tagged nodes`. Declare a tag in your policy file at
+[login.tailscale.com/admin/acls](https://login.tailscale.com/admin/acls):
+
+```json
+"tagOwners": {"tag:server": ["autogroup:admin"]},
+```
+
+Then apply it: admin console → **Machines** → your Pi → **⋯** → **Edit ACL
+tags** → add `tag:server`. Use the console rather than
+`tailscale up --advertise-tags=…`, which forces re-authentication and can reset
+other preferences on the node.
+
+Two side effects: the machine becomes tag-owned rather than yours, so any ACL
+rules written around "my machines" stop covering it — and its key stops
+expiring, which is what you want for a server.
+
+**2. The services must exist in the admin console.** Create them under
+**Services** *before* pointing the node at them. Configuring the node first
+leaves it advertising a service that does not exist, which produces a working
+`tailscale serve status` and an `NXDOMAIN` on the name.
+
+**3. Point the node at each service.** Both can use 443 — each service has its
+own virtual IP, so there is no port contention the way there is on the node
+itself:
+
+```bash
+sudo tailscale serve --service=svc:files --https 443 http://127.0.0.1:8081
+tailscale serve advertise svc:files
+```
+
+**4. Grant access to the service.** A wildcard `grants` rule covering `dst:
+["*"]` does **not** reach service VIPs; they have to be named:
+
+```json
+"grants": [
+  {"src": ["autogroup:member"], "dst": ["svc:files"], "ip": ["*"]},
+],
+```
+
+**5. Verify, then clean up.** DNS first, then the app:
+
+```bash
+tailscale dns query files.<tailnet>.ts.net     # expect RCodeSuccess and a 100.x address
+```
+
+Once the hostname loads the app, drop the old node-level mapping:
+
+```bash
+sudo tailscale serve --https 443 off
+tailscale serve status                         # should list only the services
+```
+
+Do not remove the old route before the new hostname works — it is your way back
+in if something is wrong.
+
+Two notes on the way out. `tailscale ping <service-vip>` answers `no matching
+peer` even when everything is healthy: it targets peer nodes, and a service VIP
+is not one — use `curl` against the hostname instead. And a new hostname is a
+new origin, so an installed PWA does not follow it; remove the old home-screen
+icon and add the new URL.
+
 ### Run it as a service
 
 ```bash

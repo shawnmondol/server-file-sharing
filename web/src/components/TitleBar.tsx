@@ -119,11 +119,14 @@ export function TitleBar({
               aria-pressed={sort === option.key}
               onClick={() => onSortChange(option.key)}
               className={[
-                'px-2.5 py-1.5',
-                index > 0 ? 'border-l border-[var(--border)]' : '',
+                'px-2.5 py-1.5 transition-colors',
+                index > 0 ? 'border-l' : '',
+                // Selected fills with the accent, matching the filter chips
+                // directly below it — weight alone read as no selection at all.
+                // The border blends into the fill so the segment stays clean.
                 sort === option.key
-                  ? 'font-semibold text-[var(--text)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)]',
+                  ? 'border-[var(--accent)] bg-[var(--accent)] font-semibold text-white'
+                  : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)]',
               ].join(' ')}
             >
               {option.label}
@@ -133,7 +136,7 @@ export function TitleBar({
             type="button"
             onClick={onDirectionToggle}
             aria-label={direction === 'asc' ? 'Sort descending' : 'Sort ascending'}
-            className="border-l border-[var(--border)] px-2 py-1.5 text-[var(--text-muted)] hover:text-[var(--text)]"
+            className="border-l border-[var(--border)] px-2 py-1.5 text-[var(--accent)] hover:bg-[var(--surface-hover)]"
           >
             <ArrowUpIcon
               size={14}
