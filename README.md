@@ -442,6 +442,10 @@ All routes require an identity except `GET /api/health`.
   rather than shared across the tailnet. The grid/list choice is stored the same
   way; the folder, search, and filters stay in the URL, since those describe
   what you are looking at and are worth sharing.
+- **The inspector's Download and Delete stay pinned** to the bottom of the
+  panel while the metadata scrolls above them. The metadata has no upper bound
+  — a deep path, a SHA-256, an archive entry count — so laying the actions out
+  after it pushed them below the fold on shorter screens.
 - **The inspector column is always present** on wide screens, empty until you
   select something. Mounting it on selection used to narrow the gallery and
   reflow the grid between the two halves of a double-click, so the second click

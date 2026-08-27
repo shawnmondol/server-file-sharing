@@ -15,6 +15,9 @@ interface Props {
   onClose: () => void;
 }
 
+type DetailsProps = Pick<Props, 'entry' | 'details' | 'detailsLoading' | 'onPreview'>;
+type ActionProps = Pick<Props, 'entry' | 'canWrite' | 'online' | 'onDownload' | 'onDelete'>;
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5 text-[12px]">
@@ -26,16 +29,12 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function InspectorBody({
-  entry,
-  details,
-  detailsLoading,
-  canWrite,
-  online,
-  onDownload,
-  onDelete,
-  onPreview,
-}: Omit<Props, 'onClose'>) {
+/**
+ * Everything about the file. This is the part that scrolls: the metadata grows
+ * with the file — a long path, a SHA-256, an archive entry count — and there is
+ * no upper bound on how tall it gets.
+ */
+function InspectorDetails({ entry, details, detailsLoading, onPreview }: DetailsProps) {
   // The server decides which files have a viewer at all.
   const previewable = entry.preview !== null;
 
@@ -102,36 +101,45 @@ export function InspectorBody({
           </div>
         )}
       </div>
+    </>
+  );
+}
 
-      <div className="mt-4 flex gap-2">
+/**
+ * Download and delete. Pinned rather than scrolled: these are why the panel is
+ * open, and they should not drift below the fold just because the file happens
+ * to have a long path or a digest.
+ */
+function InspectorActions({ entry, canWrite, online, onDownload, onDelete }: ActionProps) {
+  return (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={onDownload}
+        disabled={!online}
+        className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-[var(--accent)] text-[13px] font-semibold text-white disabled:opacity-40"
+      >
+        <DownloadIcon size={16} />
+        Download
+      </button>
+      {canWrite && (
         <button
           type="button"
-          onClick={onDownload}
+          onClick={onDelete}
           disabled={!online}
-          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-[10px] bg-[var(--accent)] text-[13px] font-semibold text-white disabled:opacity-40"
+          aria-label={`Delete ${entry.name}`}
+          className="flex h-10 items-center justify-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3.5 text-[13px] font-semibold text-[var(--danger)] disabled:opacity-40"
         >
-          <DownloadIcon size={16} />
-          Download
+          <TrashIcon size={16} />
         </button>
-        {canWrite && (
-          <button
-            type="button"
-            onClick={onDelete}
-            disabled={!online}
-            aria-label={`Delete ${entry.name}`}
-            className="flex h-10 items-center justify-center gap-1.5 rounded-[10px] border border-[var(--border)] bg-[var(--surface)] px-3.5 text-[13px] font-semibold text-[var(--danger)] disabled:opacity-40"
-          >
-            <TrashIcon size={16} />
-          </button>
-        )}
-      </div>
-    </>
+      )}
+    </div>
   );
 }
 
 function InspectorPlaceholder({ selectedCount }: { selectedCount: number }) {
   return (
-    <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center px-4 text-center">
       <div className="flex size-11 items-center justify-center rounded-xl bg-[var(--surface-hover)] text-[var(--text-faint)]">
         <CategoryIcon category="other" size={22} />
       </div>
@@ -155,12 +163,29 @@ function InspectorPlaceholder({ selectedCount }: { selectedCount: number }) {
 export function InspectorSidebar({
   entry,
   selectedCount,
-  ...rest
+  canWrite,
+  online,
+  onDownload,
+  onDelete,
+  ...details
 }: Omit<Props, 'entry'> & { entry: Entry | null; selectedCount: number }) {
   return (
-    <aside className="scroll-pane hidden w-[264px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-raised)] p-4 lg:block">
+    <aside className="hidden w-[264px] shrink-0 flex-col border-l border-[var(--border)] bg-[var(--surface-raised)] lg:flex">
       {entry ? (
-        <InspectorBody entry={entry} {...rest} />
+        <>
+          <div className="scroll-pane min-h-0 flex-1 p-4">
+            <InspectorDetails entry={entry} {...details} />
+          </div>
+          <div className="shrink-0 border-t border-[var(--border-subtle)] p-3">
+            <InspectorActions
+              entry={entry}
+              canWrite={canWrite}
+              online={online}
+              onDownload={onDownload}
+              onDelete={onDelete}
+            />
+          </div>
+        </>
       ) : (
         <InspectorPlaceholder selectedCount={selectedCount} />
       )}
@@ -169,31 +194,54 @@ export function InspectorSidebar({
 }
 
 /** Phone: the same content in a sheet that slides up over the grid. */
-export function InspectorSheet(props: Props) {
+export function InspectorSheet({
+  canWrite,
+  online,
+  onDownload,
+  onDelete,
+  onClose,
+  ...details
+}: Props) {
   return (
     <div className="fixed inset-0 z-40 flex flex-col justify-end lg:hidden" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label="Close details"
-        onClick={props.onClose}
+        onClick={onClose}
         className="animate-fade absolute inset-0 bg-black/25"
       />
-      <div
-        className="animate-sheet scroll-pane relative max-h-[82vh] rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] p-4 shadow-[var(--shadow-sheet)]"
-        style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
-      >
-        <div className="mb-2 flex items-start justify-between gap-2">
-          <span className="mx-auto h-1 w-9 rounded-full bg-[var(--border)]" aria-hidden="true" />
+      <div className="animate-sheet relative flex max-h-[82vh] flex-col rounded-t-2xl border-t border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-sheet)]">
+        <div className="shrink-0 pt-2.5">
+          <span
+            className="mx-auto block h-1 w-9 rounded-full bg-[var(--border)]"
+            aria-hidden="true"
+          />
           <button
             type="button"
-            onClick={props.onClose}
+            onClick={onClose}
             aria-label="Close details"
             className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[var(--text-muted)]"
           >
             <CloseIcon size={16} />
           </button>
         </div>
-        <InspectorBody {...props} />
+
+        <div className="scroll-pane min-h-0 flex-1 px-4 pb-3 pt-2">
+          <InspectorDetails {...details} />
+        </div>
+
+        <div
+          className="shrink-0 border-t border-[var(--border-subtle)] px-4 pt-3"
+          style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
+        >
+          <InspectorActions
+            entry={details.entry}
+            canWrite={canWrite}
+            online={online}
+            onDownload={onDownload}
+            onDelete={onDelete}
+          />
+        </div>
       </div>
     </div>
   );
