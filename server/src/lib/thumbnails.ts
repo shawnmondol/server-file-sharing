@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { config } from '../config.js';
-import { getThumbState, setThumbState } from './db.js';
+import { forgetUnavailableThumbnails, getMeta, getThumbState, setMeta, setThumbState } from './db.js';
 import { thumbnailKind, type ThumbKind } from './filetypes.js';
 
 /**
@@ -51,12 +51,25 @@ async function generateImageThumb(source: string, destination: string): Promise<
     .toFile(destination);
 }
 
-function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
+/**
+ * The renderer is not installed at all, as opposed to failing on this
+ * particular file. The difference matters: the second is worth remembering,
+ * the first would wrongly condemn every file of that type until it is edited.
+ */
+class RendererMissingError extends Error {
+  constructor(readonly command: string) {
+    super(`${command} is not installed`);
+    this.name = 'RendererMissingError';
+  }
+}
+
+/** Run an external renderer to completion, or reject with why it did not. */
+function run(command: string, args: string[], timeoutMs: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(config.ffmpegPath, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    const child = spawn(command, args, { stdio: ['ignore', 'ignore', 'pipe'] });
     let stderr = '';
     child.stderr.on('data', (chunk: Buffer) => {
-      // Keep only the tail; ffmpeg is verbose and we just want the error.
+      // Keep only the tail; these tools are verbose and we just want the error.
       stderr = (stderr + chunk.toString()).slice(-2000);
     });
 
@@ -64,12 +77,16 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
 
     child.on('error', (error) => {
       clearTimeout(timer);
-      reject(error);
+      reject(
+        (error as NodeJS.ErrnoException).code === 'ENOENT'
+          ? new RendererMissingError(command)
+          : error,
+      );
     });
     child.on('close', (code) => {
       clearTimeout(timer);
       if (code === 0) resolve();
-      else reject(new Error(`ffmpeg exited with ${code}: ${stderr.trim()}`));
+      else reject(new Error(`${command} exited with ${code}: ${stderr.trim()}`));
     });
   });
 }
@@ -77,7 +94,8 @@ function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
 async function generateVideoThumb(source: string, destination: string): Promise<void> {
   // Seek before -i so ffmpeg jumps rather than decoding up to the timestamp.
   // One second in avoids the black frame most recordings open on.
-  await runFfmpeg(
+  await run(
+    config.ffmpegPath,
     [
       '-hide_banner', '-loglevel', 'error', '-nostdin',
       '-ss', '1',
@@ -98,28 +116,11 @@ async function generateVideoThumb(source: string, destination: string): Promise<
  */
 async function generatePdfThumb(source: string, destination: string): Promise<void> {
   const prefix = destination.replace(/\.jpg$/, '');
-  await new Promise<void>((resolve, reject) => {
-    const child = spawn(
-      config.pdftoppmPath,
-      ['-jpeg', '-f', '1', '-l', '1', '-singlefile', '-scale-to', String(config.thumbnailSize), source, prefix],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-    let stderr = '';
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString()).slice(-2000);
-    });
-
-    const timer = setTimeout(() => child.kill('SIGKILL'), 20_000);
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`pdftoppm exited with ${code}: ${stderr.trim()}`));
-    });
-  });
+  await run(
+    config.pdftoppmPath,
+    ['-jpeg', '-f', '1', '-l', '1', '-singlefile', '-scale-to', String(config.thumbnailSize), source, prefix],
+    20_000,
+  );
 }
 
 const TEXT_PREVIEW_LINES = 16;
@@ -266,12 +267,79 @@ export async function getThumbnail(
       await fs.rename(temporary, destination);
       setThumbState(relPath, mtimeMs, size, 'ready');
       return { path: destination };
-    } catch {
+    } catch (error) {
       await fs.rm(temporary, { force: true });
-      setThumbState(relPath, mtimeMs, size, 'unavailable');
+      // A missing ffmpeg or poppler says nothing about this file. Recording it
+      // would keep the thumbnail suppressed even after the tool is installed,
+      // since the cache key only changes when the file itself does.
+      if (!(error instanceof RendererMissingError)) {
+        setThumbState(relPath, mtimeMs, size, 'unavailable');
+      }
       return null;
     }
   });
+}
+
+/** Whether an external tool can be started at all. Its exit code is irrelevant. */
+function isInstalled(command: string, versionFlag: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(command, [versionFlag], { stdio: 'ignore' });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      resolve(false);
+    }, 5000);
+
+    child.on('error', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.on('close', () => {
+      clearTimeout(timer);
+      resolve(true);
+    });
+  });
+}
+
+const RENDERER_META_KEY = 'renderers';
+
+export interface RendererStatus {
+  ffmpeg: boolean;
+  pdftoppm: boolean;
+  cleared: number;
+}
+
+/**
+ * Note which external renderers are installed and, when that has changed since
+ * the last boot, retire every cached "no thumbnail for this file" verdict.
+ *
+ * Without this, installing poppler or ffmpeg after the first run appears to do
+ * nothing: the cache key is the file's own mtime and size, so a file that
+ * failed while the tool was missing stays condemned until someone edits it.
+ */
+export async function refreshRendererAvailability(): Promise<RendererStatus> {
+  const [ffmpeg, pdftoppm] = await Promise.all([
+    isInstalled(config.ffmpegPath, '-version'),
+    isInstalled(config.pdftoppmPath, '-v'),
+  ]);
+
+  // The configured paths are part of the signature: repointing FFMPEG_PATH at
+  // a different build is as much a change as installing one.
+  const signature = JSON.stringify({
+    ffmpeg,
+    pdftoppm,
+    ffmpegPath: config.ffmpegPath,
+    pdftoppmPath: config.pdftoppmPath,
+    videoEnabled: config.enableVideoThumbnails,
+    pdfEnabled: config.enablePdfThumbnails,
+  });
+
+  let cleared = 0;
+  if (getMeta(RENDERER_META_KEY) !== signature) {
+    cleared = forgetUnavailableThumbnails();
+    setMeta(RENDERER_META_KEY, signature);
+  }
+
+  return { ffmpeg, pdftoppm, cleared };
 }
 
 /**

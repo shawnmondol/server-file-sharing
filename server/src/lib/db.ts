@@ -13,6 +13,11 @@ db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS file_cache (
     rel_path    TEXT PRIMARY KEY,
     mtime_ms    INTEGER NOT NULL,
@@ -81,6 +86,33 @@ export function getThumbState(relPath: string, mtimeMs: number, size: number): T
 
 export function setThumbState(relPath: string, mtimeMs: number, size: number, thumbState: ThumbState): void {
   upsertThumbState.run({ relPath, mtimeMs, size, thumbState, now: Date.now() });
+}
+
+const selectMeta = db.prepare<[string], { value: string }>('SELECT value FROM meta WHERE key = ?');
+const upsertMeta = db.prepare(`
+  INSERT INTO meta (key, value) VALUES (@key, @value)
+  ON CONFLICT(key) DO UPDATE SET value = @value
+`);
+
+/** Small key/value scratchpad for facts about the install, not about files. */
+export function getMeta(key: string): string | null {
+  return selectMeta.get(key)?.value ?? null;
+}
+
+export function setMeta(key: string, value: string): void {
+  upsertMeta.run({ key, value });
+}
+
+const clearUnavailableThumbs = db.prepare(
+  "UPDATE file_cache SET thumb_state = NULL WHERE thumb_state = 'unavailable'",
+);
+
+/**
+ * Forget every "this file has no thumbnail" mark so they are all retried.
+ * Cached digests are left alone — only the thumbnail verdict is in question.
+ */
+export function forgetUnavailableThumbnails(): number {
+  return clearUnavailableThumbs.run().changes;
 }
 
 /** Drop cache entries for a deleted file, or for a deleted folder's subtree. */

@@ -420,6 +420,12 @@ All routes require an identity except `GET /api/health`.
   camera raw fall back to a type badge, as does anything whose renderer is
   missing or fails. Generation is capped at two concurrent jobs so a large
   gallery does not saturate the Pi.
+- **Renderer detection** happens at startup. The log line `thumbnail renderers
+  detected` reports whether ffmpeg and pdftoppm were found, and warns if one is
+  missing while its thumbnails are enabled. Installing a renderer later only
+  needs a restart: the app notices the change and retries every thumbnail that
+  failed while the tool was absent, rather than leaving those files condemned
+  until they are next edited.
 - **Moves** are a rename within the share, so they are instant regardless of
   file size. A name collision in the destination gets the same ` (2)` suffix an
   upload would, and a folder cannot be dropped into itself or its own subtree.
@@ -445,8 +451,9 @@ All routes require an identity except `GET /api/health`.
 | Symptom | Check |
 | --- | --- |
 | "No Tailscale identity on this request" | You reached the app directly rather than through `tailscale serve`. Use the `.ts.net` URL. `tailscale serve status` shows the mapping. |
-| No video thumbnails | `which ffmpeg`, and `ENABLE_VIDEO_THUMBNAILS=true`. |
-| No PDF thumbnails | `which pdftoppm` (`sudo apt install poppler-utils`), and `ENABLE_PDF_THUMBNAILS=true`. Previewing a PDF works either way. |
+| No video thumbnails | `which ffmpeg`, and `ENABLE_VIDEO_THUMBNAILS=true`. Restart the service after installing — see below. |
+| No PDF thumbnails | `which pdftoppm` (`sudo apt install poppler-utils`), and `ENABLE_PDF_THUMBNAILS=true`. Restart the service after installing. Previewing a PDF works either way. |
+| Installed ffmpeg or poppler but nothing changed | Restart the service (`sudo systemctl restart fileshare`). Renderers are detected at startup; the log then says `thumbnail renderers detected` and retries anything that failed while the tool was missing. |
 | A text file will not open in the editor | It is over `MAX_TEXT_BYTES`, or it contains NUL bytes and is not really text. Download it instead. |
 | `sharp` fails to load after an upgrade | `npm rebuild sharp` — prebuilt binaries are tied to the Node major version. |
 | Uploads fail at a certain size | `MAX_UPLOAD_BYTES`, then free space (`df -h ~/Documents/SharedFiles`). |

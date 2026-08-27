@@ -8,7 +8,7 @@ import { config } from './config.js';
 import { AuthError } from './lib/auth.js';
 import { sweepOrphanedUploads } from './lib/maintenance.js';
 import { PathError } from './lib/paths.js';
-import { pruneThumbnailCache } from './lib/thumbnails.js';
+import { pruneThumbnailCache, refreshRendererAvailability } from './lib/thumbnails.js';
 import fileRoutes from './routes/files.js';
 import sessionRoutes from './routes/session.js';
 import textRoutes from './routes/text.js';
@@ -110,6 +110,37 @@ async function start(): Promise<void> {
 
   if (config.authMode === 'none') {
     app.log.warn('AUTH_MODE=none — every request is treated as trusted. Development only.');
+  }
+
+  // Which renderers exist decides whether previously-failed thumbnails deserve
+  // another try, so this runs before the other housekeeping — and before the
+  // first gallery load has a chance to re-read a stale verdict.
+  try {
+    const renderers = await refreshRendererAvailability();
+    app.log.info(
+      { ffmpeg: renderers.ffmpeg, pdftoppm: renderers.pdftoppm },
+      'thumbnail renderers detected',
+    );
+    if (!renderers.pdftoppm && config.enablePdfThumbnails) {
+      app.log.warn(
+        `pdftoppm not found at "${config.pdftoppmPath}" — PDFs will show a type badge instead of a first-page preview. ` +
+          'Install poppler-utils, or set ENABLE_PDF_THUMBNAILS=false to silence this.',
+      );
+    }
+    if (!renderers.ffmpeg && config.enableVideoThumbnails) {
+      app.log.warn(
+        `ffmpeg not found at "${config.ffmpegPath}" — videos will show a type badge instead of a poster frame. ` +
+          'Install ffmpeg, or set ENABLE_VIDEO_THUMBNAILS=false to silence this.',
+      );
+    }
+    if (renderers.cleared > 0) {
+      app.log.info(
+        { cleared: renderers.cleared },
+        'renderer availability changed — cached thumbnail failures will be retried',
+      );
+    }
+  } catch (error) {
+    app.log.warn({ err: error }, 'renderer probe failed');
   }
 
   // Housekeeping runs after the listener is up so it never delays startup.
