@@ -104,6 +104,27 @@ button {
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * Anything clickable gets the hand cursor. Stated once here rather than as a
+ * utility on every control, so a new button cannot be added without it.
+ * Element selectors are weak enough that a Tailwind `cursor-*` class on an
+ * individual control still wins.
+ */
+button,
+select,
+summary,
+a[href],
+label:has(> select),
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
 @keyframes sheet-in {
   from {
     transform: translateY(14px);

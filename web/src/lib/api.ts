@@ -2,9 +2,12 @@ import type {
   BrowseResult,
   DeleteResult,
   Details,
+  MoveResult,
   Session,
   SortDirection,
   SortKey,
+  TextDocument,
+  TextSaveResult,
 } from './types';
 
 export class ApiError extends Error {
@@ -82,6 +85,31 @@ export function createFolder(path: string, name: string): Promise<{ path: string
 
 export function deletePaths(paths: string[]): Promise<DeleteResult> {
   return request<DeleteResult>('/api/delete', json({ paths }));
+}
+
+/** Move entries into another folder — what a drag onto a folder tile does. */
+export function movePaths(paths: string[], destination: string): Promise<MoveResult> {
+  return request<MoveResult>('/api/move', json({ paths, destination }));
+}
+
+export function getText(path: string, signal?: AbortSignal): Promise<TextDocument> {
+  return request<TextDocument>(`/api/text?path=${encodeURIComponent(path)}`, { signal });
+}
+
+/**
+ * Save edited text. `modifiedAt` is the mtime the editor loaded; the server
+ * refuses the write with a 409 if the file changed underneath it.
+ */
+export function saveText(
+  path: string,
+  content: string,
+  modifiedAt: number,
+): Promise<TextSaveResult> {
+  return request<TextSaveResult>('/api/text', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content, modifiedAt }),
+  });
 }
 
 export function thumbnailUrl(path: string): string {

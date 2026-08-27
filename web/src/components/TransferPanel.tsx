@@ -103,7 +103,8 @@ export function TransferPanel({ transfers, onCancel, onCancelAll, onClear }: Pro
   return (
     <div
       className="animate-sheet fixed right-3 z-30 w-[min(19rem,calc(100vw-1.5rem))] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_12px_34px_rgba(0,0,0,0.18)]"
-      style={{ bottom: 'max(0.75rem, calc(env(safe-area-inset-bottom) + 0.75rem))' }}
+      // Stacked above the notification bell, which owns the bottom corner.
+      style={{ bottom: 'calc(max(0.5rem, env(safe-area-inset-bottom)) + 6.25rem)' }}
       role="status"
       aria-live="polite"
     >

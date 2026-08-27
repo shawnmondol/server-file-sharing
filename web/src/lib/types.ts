@@ -17,6 +17,9 @@ export type Category =
   | 'data'
   | 'other';
 
+/** Which viewer the preview overlay uses; null means download-only. */
+export type PreviewMode = 'image' | 'video' | 'pdf' | 'text';
+
 export interface Entry {
   name: string;
   path: string;
@@ -31,6 +34,7 @@ export interface Entry {
   owner: string;
   mode: string;
   hasThumbnail: boolean;
+  preview: PreviewMode | null;
 }
 
 export interface Crumb {
@@ -84,6 +88,25 @@ export interface Session {
   };
   disk: DiskUsage;
   categories: Array<{ category: Category; label: string }>;
+}
+
+export interface TextDocument {
+  path: string;
+  content: string;
+  size: number;
+  modifiedAt: number;
+  kind: string;
+}
+
+export interface TextSaveResult {
+  path: string;
+  size: number;
+  modifiedAt: number;
+}
+
+export interface MoveResult {
+  moved: Array<{ from: string; to: string }>;
+  failed: Array<{ path: string; reason: string }>;
 }
 
 export interface DeleteResult {

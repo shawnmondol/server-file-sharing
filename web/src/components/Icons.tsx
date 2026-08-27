@@ -102,6 +102,13 @@ export const RetryIcon = (props: IconProps) => (
   </Icon>
 );
 
+export const BellIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M18 15V10a6 6 0 0 0-12 0v5l-1.6 2.4a.5.5 0 0 0 .42.77h14.36a.5.5 0 0 0 .42-.77z" />
+    <path d="M9.8 21a2.4 2.4 0 0 0 4.4 0" />
+  </Icon>
+);
+
 const FolderGlyph = (props: IconProps) => (
   <Icon {...props}>
     <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />

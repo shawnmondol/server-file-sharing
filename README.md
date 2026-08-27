@@ -13,8 +13,9 @@ immediately, and anything the app deletes is gone from disk.
 
 ## What it does
 
-- **Gallery view** — thumbnail grid with real image previews and video poster
-  frames, folder drill-in, and a breadcrumb trail.
+- **Gallery view** — thumbnail grid with real image previews, video poster
+  frames, first-page PDF renders, and a page-of-text preview for notes, code,
+  and config; folder drill-in and a breadcrumb trail.
 - **Filters** — type chips generated from what is actually in the folder, across
   17 categories (images, video, audio, documents, spreadsheets, presentations,
   archives, code, text, data, e-books, fonts, design, disk images, apps, and so
@@ -27,9 +28,20 @@ immediately, and anything the app deletes is gone from disk.
   collision.
 - **Download** — single files stream directly with range support; multi-select
   and folders download as a ZIP.
+- **Move** — drag a tile onto a folder to move it there, or onto a breadcrumb
+  to move it back up. Dragging one tile of a multi-selection takes the whole
+  selection with it.
+- **Preview** — images, video, PDFs (in the browser's own viewer), and any text
+  file open in a Quick Look–style overlay instead of downloading.
+- **Text editing** — text, code, config, and data files are editable in place
+  and saved straight back to the share, with ⌘S, an unsaved-changes guard, and
+  a refusal to overwrite a file that changed underneath you.
 - **Delete** — multi-select with a confirmation sheet. Permanent, no trash.
 - **Inspector** — size, kind, dates, owner and mode, full path, SHA-256, and
   entry count for ZIP archives. A sidebar on desktop, a sheet on phones.
+- **Upload notifications** — the transfer panel retires a few seconds after the
+  last file lands; a bell in the corner keeps the history, including failures,
+  across reloads.
 - **Offline state** — when the tailnet route drops, the cached listing stays
   visible and write actions are disabled rather than failing silently.
 
@@ -55,6 +67,9 @@ On the Pi:
 
 - **Node.js 22 or newer** — `curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt install -y nodejs`
 - **ffmpeg** (only for video poster frames) — `sudo apt install -y ffmpeg`
+- **poppler-utils** (only for PDF thumbnails) — `sudo apt install -y poppler-utils`.
+  Without it PDFs still preview in the browser; they just show an extension
+  badge in the grid instead of the first page.
 - **Tailscale**, logged in — `curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up`
 - **build-essential** — `sudo apt install -y build-essential python3`, in case a
   native module has to compile rather than fetch a prebuilt binary.
@@ -276,7 +291,10 @@ edit it in place, and never commit the copy.
 | `WRITE_USERS` | *(empty)* | Logins allowed to upload and delete. Empty means every allowed user can write. |
 | `ENABLE_VIDEO_THUMBNAILS` | `true` | Set `false` if you have not installed ffmpeg. |
 | `FFMPEG_PATH` | `ffmpeg` | Override if ffmpeg is not on `PATH`. |
+| `ENABLE_PDF_THUMBNAILS` | `true` | Set `false` if you have not installed poppler-utils. |
+| `PDFTOPPM_PATH` | `pdftoppm` | Override if poppler-utils is not on `PATH`. |
 | `THUMBNAIL_SIZE` | `480` | Long edge, in pixels. |
+| `MAX_TEXT_BYTES` | `2097152` (2 MiB) | Ceiling for the in-app text editor. Larger text files are download only. |
 | `MAX_HASH_BYTES` | `2147483648` (2 GiB) | Files above this skip SHA-256 rather than pin the CPU. `0` disables the limit. |
 
 ### Read-only accounts
@@ -384,7 +402,10 @@ All routes require an identity except `GET /api/health`.
 | `GET` | `/api/download` | `?path` — attachment with range support. |
 | `POST` | `/api/upload` | `?path` — streaming multipart. Write access. |
 | `POST` | `/api/folders` | `{path, name}`. Write access. |
+| `POST` | `/api/move` | `{paths[], destination}` — per-path results. Write access. |
 | `POST` | `/api/delete` | `{paths[]}` — per-path results. Write access. |
+| `GET` | `/api/text` | `?path` — UTF-8 contents of a text file, with its mtime. |
+| `PUT` | `/api/text` | `{path, content, modifiedAt}` — atomic overwrite, 409 on a stale mtime. Write access. |
 | `POST` | `/api/bundles` | `{paths[]}` → single-use token. |
 | `GET` | `/api/bundles/:token` | Streams the ZIP. Token is bound to the requesting user. |
 
@@ -394,9 +415,21 @@ All routes require an identity except `GET /api/health`.
 
 - **Deletes are permanent.** There is no trash. The confirmation sheet says so.
 - **Thumbnails** cover formats sharp can decode (JPEG, PNG, WebP, AVIF, HEIC,
-  TIFF, GIF) plus a video poster frame via ffmpeg. SVG and camera raw fall back
-  to a type badge. Generation is capped at two concurrent jobs so a large gallery
-  does not saturate the Pi.
+  TIFF, GIF), a video poster frame via ffmpeg, a first-page render for PDFs via
+  poppler, and a rendered page of the opening lines for text files. SVG and
+  camera raw fall back to a type badge, as does anything whose renderer is
+  missing or fails. Generation is capped at two concurrent jobs so a large
+  gallery does not saturate the Pi.
+- **Moves** are a rename within the share, so they are instant regardless of
+  file size. A name collision in the destination gets the same ` (2)` suffix an
+  upload would, and a folder cannot be dropped into itself or its own subtree.
+- **Text editing** is capped at `MAX_TEXT_BYTES` and refuses files containing
+  NUL bytes, whatever their extension claims. Saves write a temp file beside
+  the original and rename over it, so an interrupted save leaves the previous
+  version intact. The editor sends back the mtime it loaded; if the file
+  changed in between, the save is refused rather than silently clobbering it.
+- **Upload history** lives in `localStorage`, so it is per-browser and per-device
+  rather than shared across the tailnet.
 - **Archive entry counts** are read from the ZIP central directory. `.tar.gz` and
   friends would have to be decompressed end to end, so they are left blank.
 - **Search** walks up to 12 levels deep and 20,000 entries from the current
@@ -413,6 +446,8 @@ All routes require an identity except `GET /api/health`.
 | --- | --- |
 | "No Tailscale identity on this request" | You reached the app directly rather than through `tailscale serve`. Use the `.ts.net` URL. `tailscale serve status` shows the mapping. |
 | No video thumbnails | `which ffmpeg`, and `ENABLE_VIDEO_THUMBNAILS=true`. |
+| No PDF thumbnails | `which pdftoppm` (`sudo apt install poppler-utils`), and `ENABLE_PDF_THUMBNAILS=true`. Previewing a PDF works either way. |
+| A text file will not open in the editor | It is over `MAX_TEXT_BYTES`, or it contains NUL bytes and is not really text. Download it instead. |
 | `sharp` fails to load after an upgrade | `npm rebuild sharp` — prebuilt binaries are tied to the Node major version. |
 | Uploads fail at a certain size | `MAX_UPLOAD_BYTES`, then free space (`df -h ~/Documents/SharedFiles`). |
 | Won't add to home screen on iOS | Must be Safari, and must be the HTTPS `.ts.net` URL. |

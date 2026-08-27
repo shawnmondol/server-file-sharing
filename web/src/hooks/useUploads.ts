@@ -15,8 +15,39 @@ export interface Transfer {
   targetPath: string;
 }
 
+/** A settled upload, kept in the notification centre after the panel is gone. */
+export interface UploadRecord {
+  id: string;
+  name: string;
+  size: number;
+  status: Exclude<TransferStatus, 'queued' | 'uploading'>;
+  error: string | null;
+  targetPath: string;
+  finishedAt: number;
+  seen: boolean;
+}
+
 /** How many files go up at once. Two keeps a single Pi's uplink saturated. */
 const MAX_PARALLEL = 2;
+
+const HISTORY_KEY = 'fileshare.uploads.v1';
+const HISTORY_LIMIT = 100;
+
+/**
+ * History survives a reload, so the bell still answers "did that batch of
+ * photos actually land?" the next morning. Private-mode browsers throw on
+ * every storage call, hence the try/catch on both sides.
+ */
+function loadHistory(): UploadRecord[] {
+  try {
+    const raw = window.localStorage.getItem(HISTORY_KEY);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as UploadRecord[]).slice(0, HISTORY_LIMIT) : [];
+  } catch {
+    return [];
+  }
+}
 
 interface QueueItem {
   transfer: Transfer;
@@ -30,6 +61,15 @@ interface QueueItem {
  */
 export function useUploads(onFileComplete: () => void) {
   const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [history, setHistory] = useState<UploadRecord[]>(loadHistory);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, HISTORY_LIMIT)));
+    } catch {
+      // Storage full or blocked; the in-memory history still works this session.
+    }
+  }, [history]);
 
   const queue = useRef<QueueItem[]>([]);
   const inflight = useRef(new Map<string, XMLHttpRequest>());
@@ -47,6 +87,28 @@ export function useUploads(onFileComplete: () => void) {
       current.map((transfer) => (transfer.id === id ? { ...transfer, ...changes } : transfer)),
     );
   }, []);
+
+  /** Record a finished upload in the notification centre, newest first. */
+  const remember = useCallback(
+    (transfer: Transfer, status: UploadRecord['status'], error: string | null) => {
+      setHistory((current) =>
+        [
+          {
+            id: transfer.id,
+            name: transfer.name,
+            size: transfer.size,
+            status,
+            error,
+            targetPath: transfer.targetPath,
+            finishedAt: Date.now(),
+            seen: false,
+          },
+          ...current,
+        ].slice(0, HISTORY_LIMIT),
+      );
+    },
+    [],
+  );
 
   const start = useCallback(
     (item: QueueItem) => {
@@ -87,6 +149,7 @@ export function useUploads(onFileComplete: () => void) {
 
         if (rejectedReason) {
           patch(transfer.id, { status: 'failed', error: rejectedReason });
+          remember(transfer, 'failed', rejectedReason);
         } else {
           patch(transfer.id, {
             status: 'done',
@@ -94,6 +157,7 @@ export function useUploads(onFileComplete: () => void) {
             secondsRemaining: 0,
             error: null,
           });
+          remember(transfer, 'done', null);
           completionCallback.current();
         }
         finish();
@@ -101,11 +165,13 @@ export function useUploads(onFileComplete: () => void) {
 
       xhr.addEventListener('error', () => {
         patch(transfer.id, { status: 'failed', error: 'Connection lost' });
+        remember(transfer, 'failed', 'Connection lost');
         finish();
       });
 
       xhr.addEventListener('abort', () => {
         patch(transfer.id, { status: 'cancelled', error: null });
+        remember(transfer, 'cancelled', null);
         finish();
       });
 
@@ -115,7 +181,7 @@ export function useUploads(onFileComplete: () => void) {
       xhr.open('POST', `/api/upload?path=${encodeURIComponent(transfer.targetPath)}`);
       xhr.send(body);
     },
-    [patch],
+    [patch, remember],
   );
 
   const pump = useCallback(() => {
@@ -156,24 +222,31 @@ export function useUploads(onFileComplete: () => void) {
     [pump],
   );
 
-  const cancel = useCallback((id: string) => {
-    const xhr = inflight.current.get(id);
-    if (xhr) {
-      xhr.abort();
-      return;
-    }
-    // Not started yet — drop it from the queue instead.
-    queue.current = queue.current.filter((item) => item.transfer.id !== id);
-    setTransfers((current) =>
-      current.map((transfer) =>
-        transfer.id === id && transfer.status === 'queued'
-          ? { ...transfer, status: 'cancelled' }
-          : transfer,
-      ),
-    );
-  }, []);
+  const cancel = useCallback(
+    (id: string) => {
+      const xhr = inflight.current.get(id);
+      if (xhr) {
+        // The abort listener records it; nothing else to do here.
+        xhr.abort();
+        return;
+      }
+      // Not started yet — drop it from the queue instead.
+      const dropped = queue.current.find((item) => item.transfer.id === id);
+      queue.current = queue.current.filter((item) => item.transfer.id !== id);
+      if (dropped) remember(dropped.transfer, 'cancelled', null);
+      setTransfers((current) =>
+        current.map((transfer) =>
+          transfer.id === id && transfer.status === 'queued'
+            ? { ...transfer, status: 'cancelled' }
+            : transfer,
+        ),
+      );
+    },
+    [remember],
+  );
 
   const cancelAll = useCallback(() => {
+    for (const item of queue.current) remember(item.transfer, 'cancelled', null);
     queue.current = [];
     for (const xhr of inflight.current.values()) xhr.abort();
     setTransfers((current) =>
@@ -181,7 +254,7 @@ export function useUploads(onFileComplete: () => void) {
         transfer.status === 'queued' ? { ...transfer, status: 'cancelled' } : transfer,
       ),
     );
-  }, []);
+  }, [remember]);
 
   /** Clear finished rows so the panel collapses once everything has landed. */
   const clearSettled = useCallback(() => {
@@ -197,9 +270,31 @@ export function useUploads(onFileComplete: () => void) {
     };
   }, []);
 
+  const markHistorySeen = useCallback(() => {
+    setHistory((current) =>
+      current.some((record) => !record.seen)
+        ? current.map((record) => (record.seen ? record : { ...record, seen: true }))
+        : current,
+    );
+  }, []);
+
+  const clearHistory = useCallback(() => setHistory([]), []);
+
   const active = transfers.filter(
     (transfer) => transfer.status === 'queued' || transfer.status === 'uploading',
   );
+  const unseenCount = history.reduce((count, record) => count + (record.seen ? 0 : 1), 0);
 
-  return { transfers, active, enqueue, cancel, cancelAll, clearSettled };
+  return {
+    transfers,
+    active,
+    history,
+    unseenCount,
+    enqueue,
+    cancel,
+    cancelAll,
+    clearSettled,
+    markHistorySeen,
+    clearHistory,
+  };
 }

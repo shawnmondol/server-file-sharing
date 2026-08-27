@@ -5,11 +5,27 @@ interface Props {
   entries: Entry[];
   selected: Set<string>;
   showPaths: boolean;
+  canMove: boolean;
+  draggingPaths: Set<string>;
   onSelect: (entry: Entry, modifiers: { toggle: boolean; range: boolean }) => void;
   onOpen: (entry: Entry) => void;
+  onDragStart: (entry: Entry) => string[];
+  onDragEnd: () => void;
+  onDropInto: (folder: Entry, paths: string[]) => void;
 }
 
-export function Gallery({ entries, selected, showPaths, onSelect, onOpen }: Props) {
+export function Gallery({
+  entries,
+  selected,
+  showPaths,
+  canMove,
+  draggingPaths,
+  onSelect,
+  onOpen,
+  onDragStart,
+  onDragEnd,
+  onDropInto,
+}: Props) {
   return (
     <div
       role="grid"
@@ -25,8 +41,13 @@ export function Gallery({ entries, selected, showPaths, onSelect, onOpen }: Prop
           entry={entry}
           selected={selected.has(entry.path)}
           showPath={showPaths}
+          canMove={canMove}
+          dragging={draggingPaths.has(entry.path)}
           onSelect={onSelect}
           onOpen={onOpen}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDropInto={onDropInto}
         />
       ))}
     </div>

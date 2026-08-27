@@ -304,11 +304,6 @@ export function classify(filename: string): TypeSpec {
   return BY_EXTENSION[lower.slice(dot)] ?? FALLBACK;
 }
 
-/** Thumbnails are only worth generating for these two categories. */
-export function canThumbnail(category: Category): boolean {
-  return category === 'image' || category === 'video';
-}
-
 /**
  * Formats sharp can decode. SVG and camera raw are excluded — sharp either
  * cannot read them or would need a delegate we do not ship.
@@ -322,4 +317,65 @@ export function isSharpReadable(filename: string): boolean {
   const lower = filename.toLowerCase();
   const dot = lower.lastIndexOf('.');
   return dot > 0 && SHARP_READABLE.has(lower.slice(dot));
+}
+
+/**
+ * Extensions that land in a text-ish category but hold binary data. Without
+ * this list `.sqlite` would be offered up in the text editor.
+ */
+const BINARY_IN_TEXT_CATEGORY = new Set(['.parquet', '.sqlite', '.db', '.ipynb']);
+
+function extensionOf(filename: string): string {
+  const lower = filename.toLowerCase();
+  const dot = lower.lastIndexOf('.');
+  return dot > 0 ? lower.slice(dot) : '';
+}
+
+/**
+ * Whether a file is plain text we can show — and let people edit — in the
+ * browser. Derived from the classification rather than by sniffing: the
+ * category covers prose, code, and config, and the mime check picks up the
+ * stragglers filed elsewhere (`.tex` is a document, but it is still text).
+ */
+export function isTextual(filename: string): boolean {
+  if (BINARY_IN_TEXT_CATEGORY.has(extensionOf(filename))) return false;
+  const { category, mime } = classify(filename);
+  return (
+    category === 'text' ||
+    category === 'code' ||
+    category === 'data' ||
+    mime.startsWith('text/')
+  );
+}
+
+export function isPdf(filename: string): boolean {
+  return extensionOf(filename) === '.pdf';
+}
+
+/** What kind of renderer, if any, can produce a thumbnail for this file. */
+export type ThumbKind = 'image' | 'video' | 'pdf' | 'text';
+
+export function thumbnailKind(filename: string): ThumbKind | null {
+  const { category } = classify(filename);
+  if (category === 'image') return isSharpReadable(filename) ? 'image' : null;
+  if (category === 'video') return 'video';
+  if (isPdf(filename)) return 'pdf';
+  if (isTextual(filename)) return 'text';
+  return null;
+}
+
+/**
+ * How the browser should show this file in the Quick Look overlay, or null if
+ * downloading it is the only sensible thing to do. Decided here rather than in
+ * the web app so there is one classification table, not two.
+ */
+export type PreviewMode = 'image' | 'video' | 'pdf' | 'text';
+
+export function previewMode(filename: string): PreviewMode | null {
+  const { category } = classify(filename);
+  if (category === 'image') return 'image';
+  if (category === 'video') return 'video';
+  if (isPdf(filename)) return 'pdf';
+  if (isTextual(filename)) return 'text';
+  return null;
 }

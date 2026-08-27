@@ -3,8 +3,15 @@ import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { config } from '../config.js';
-import { CATEGORY_ORDER, type Category, classify } from './filetypes.js';
+import {
+  CATEGORY_ORDER,
+  type Category,
+  classify,
+  previewMode,
+  type PreviewMode,
+} from './filetypes.js';
 import { resolveExisting, toRelative } from './paths.js';
+import { supportedThumbnailKind } from './thumbnails.js';
 
 export interface Entry {
   name: string;
@@ -22,6 +29,8 @@ export interface Entry {
   owner: string;
   mode: string;
   hasThumbnail: boolean;
+  /** Which viewer the overlay should use, or null to download instead. */
+  preview: PreviewMode | null;
 }
 
 export interface DiskUsage {
@@ -114,7 +123,8 @@ async function toEntry(directory: string, name: string): Promise<Entry | null> {
     modifiedAt: Math.round(stat.mtimeMs),
     owner: usernameFor(stat.uid),
     mode: (stat.mode & 0o777).toString(8).padStart(3, '0'),
-    hasThumbnail: spec.category === 'image' || (spec.category === 'video' && config.enableVideoThumbnails),
+    hasThumbnail: !isDirectory && supportedThumbnailKind(name) !== null,
+    preview: isDirectory ? null : previewMode(name),
   };
 }
 

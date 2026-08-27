@@ -7,6 +7,7 @@ import {
   downloadUrl,
   getDetails,
   getSession,
+  movePaths,
 } from './lib/api';
 import { CATEGORY_LABELS, formatBytes } from './lib/format';
 import type { Details, Entry, Session } from './lib/types';
@@ -20,6 +21,7 @@ import { EmptyState } from './components/EmptyState';
 import { FilterChips } from './components/FilterChips';
 import { Gallery } from './components/Gallery';
 import { InspectorSheet, InspectorSidebar } from './components/Inspector';
+import { NotificationCenter } from './components/NotificationCenter';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PreviewOverlay } from './components/PreviewOverlay';
 import { PromptDialog } from './components/PromptDialog';
@@ -28,6 +30,9 @@ import { StatusBar } from './components/StatusBar';
 import { TitleBar } from './components/TitleBar';
 import { Toast, type ToastMessage } from './components/Toast';
 import { TransferPanel } from './components/TransferPanel';
+
+/** How long the upload toast lingers once every transfer has settled. */
+const TOAST_LINGER_MS = 4000;
 
 export function App() {
   const [session, setSession] = useState<Session | null>(null);
@@ -41,6 +46,11 @@ export function App() {
   const notify = useCallback((text: string, tone: ToastMessage['tone'] = 'error') => {
     setToast({ id: Date.now(), text, tone });
   }, []);
+
+  // Stable, because the toast re-arms its auto-dismiss timer whenever this
+  // identity changes — an inline arrow would keep the toast up for as long as
+  // anything on the page was re-rendering.
+  const dismissToast = useCallback(() => setToast(null), []);
 
   const uploads = useUploads(reload);
 
@@ -122,7 +132,8 @@ export function App() {
         navigate(entry.path);
         return;
       }
-      if (entry.category === 'image' || entry.category === 'video') {
+      // The server decides what has a viewer; everything else downloads.
+      if (entry.preview) {
         setPreviewEntry(entry);
         return;
       }
@@ -186,6 +197,82 @@ export function App() {
       }
     },
     [notify],
+  );
+
+  // --- Move ----------------------------------------------------------------
+  // Paths currently being dragged, so their tiles can dim and a folder cannot
+  // be dropped onto itself.
+  const [draggingPaths, setDraggingPaths] = useState<Set<string>>(new Set());
+  const canMove = canWrite && online;
+
+  const beginDrag = useCallback(
+    (entry: Entry): string[] => {
+      // Dragging one tile of a multi-selection takes the whole selection with
+      // it, the way a file manager does.
+      const paths =
+        selected.has(entry.path) && selected.size > 1
+          ? entries.filter((candidate) => selected.has(candidate.path)).map((candidate) => candidate.path)
+          : [entry.path];
+      setDraggingPaths(new Set(paths));
+      return paths;
+    },
+    [entries, selected],
+  );
+
+  const endDrag = useCallback(() => {
+    setDraggingPaths((current) => (current.size === 0 ? current : new Set()));
+  }, []);
+
+  const move = useCallback(
+    async (destination: string, paths: string[]) => {
+      endDrag();
+      if (!canWrite) {
+        notify('Your account has read-only access to the share');
+        return;
+      }
+      if (!online) {
+        notify('Moving is paused while the server is unreachable');
+        return;
+      }
+
+      try {
+        const outcome = await movePaths(paths, destination);
+
+        if (outcome.failed.length > 0) {
+          const only = outcome.failed[0];
+          notify(
+            outcome.failed.length === 1 && only
+              ? `Could not move “${only.path.split('/').pop()}”: ${only.reason}`
+              : `${outcome.failed.length} items could not be moved`,
+          );
+        } else if (outcome.moved.length > 0) {
+          notify(
+            `Moved ${outcome.moved.length === 1 ? '1 item' : `${outcome.moved.length} items`} to ${
+              destination.split('/').pop() || 'Shared Files'
+            }`,
+            'info',
+          );
+        }
+
+        setSelected(new Set());
+        setSheetEntry(null);
+        reload();
+      } catch (cause) {
+        notify(cause instanceof ApiError ? cause.message : 'Move failed');
+      }
+    },
+    [canWrite, endDrag, notify, online, reload],
+  );
+
+  // Stable identities: FileTile is memoised, and an inline arrow here would
+  // re-render every tile in the grid on every App render.
+  const dropIntoFolder = useCallback(
+    (folder: Entry, paths: string[]) => void move(folder.path, paths),
+    [move],
+  );
+  const dropIntoPath = useCallback(
+    (destination: string, paths: string[]) => void move(destination, paths),
+    [move],
   );
 
   // --- Delete --------------------------------------------------------------
@@ -283,11 +370,47 @@ export function App() {
     };
   }, [startUpload]);
 
+  // --- Transfers & notifications -------------------------------------------
+  const [transfersVisible, setTransfersVisible] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+
+  const activeUploads = uploads.active.length;
+  const queuedOrSettled = uploads.transfers.length;
+  const { clearSettled, markHistorySeen } = uploads;
+
+  useEffect(() => {
+    if (activeUploads > 0) {
+      setTransfersVisible(true);
+      return;
+    }
+    if (queuedOrSettled === 0) {
+      setTransfersVisible(false);
+      return;
+    }
+    // Everything has landed: show the result just long enough to read, then
+    // retire the toast. The bell keeps the outcome from here on.
+    const timer = setTimeout(() => {
+      setTransfersVisible(false);
+      clearSettled();
+    }, TOAST_LINGER_MS);
+    return () => clearTimeout(timer);
+  }, [activeUploads, queuedOrSettled, clearSettled]);
+
+  const toggleNotifications = useCallback(() => {
+    setNotificationsOpen((open) => {
+      if (!open) markHistorySeen();
+      return !open;
+    });
+  }, [markHistorySeen]);
+
   // --- Keyboard ------------------------------------------------------------
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'SELECT')) return;
+      if (target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)) return;
+      // The preview overlay owns the keyboard while it is up — Backspace in
+      // the text editor must never reach the delete shortcut below.
+      if (previewEntry) return;
 
       if (event.key === 'Escape') {
         setSelected(new Set());
@@ -303,7 +426,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [canWrite, entries, online, selectedEntries]);
+  }, [canWrite, entries, online, previewEntry, selectedEntries]);
 
   // --- Render --------------------------------------------------------------
   if (sessionError) {
@@ -351,7 +474,14 @@ export function App() {
 
       <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] px-3 py-2 sm:px-4">
         <div className="min-w-0 flex-1">
-          {result && <Breadcrumbs crumbs={result.breadcrumbs} onNavigate={navigate} />}
+          {result && (
+            <Breadcrumbs
+              crumbs={result.breadcrumbs}
+              canMove={canMove}
+              onNavigate={navigate}
+              onDropInto={dropIntoPath}
+            />
+          )}
         </div>
         <button
           type="button"
@@ -435,8 +565,13 @@ export function App() {
               entries={entries}
               selected={selected}
               showPaths={searching}
+              canMove={canMove}
+              draggingPaths={draggingPaths}
               onSelect={handleSelect}
               onOpen={handleOpen}
+              onDragStart={beginDrag}
+              onDragEnd={endDrag}
+              onDropInto={dropIntoFolder}
             />
           )}
         </main>
@@ -480,7 +615,13 @@ export function App() {
       )}
 
       {previewEntry && (
-        <PreviewOverlay entry={previewEntry} onClose={() => setPreviewEntry(null)} />
+        <PreviewOverlay
+          entry={previewEntry}
+          canWrite={canWrite}
+          online={online}
+          onSaved={reload}
+          onClose={() => setPreviewEntry(null)}
+        />
       )}
 
       {pendingDelete && (
@@ -511,14 +652,32 @@ export function App() {
         />
       )}
 
-      <TransferPanel
-        transfers={uploads.transfers}
-        onCancel={uploads.cancel}
-        onCancelAll={uploads.cancelAll}
-        onClear={uploads.clearSettled}
-      />
+      {/* The toast covers uploads in flight; once they settle it retires and
+          the bell below takes over. Both at once would just be the same list
+          stacked on itself. */}
+      {transfersVisible && !notificationsOpen && (
+        <TransferPanel
+          transfers={uploads.transfers}
+          onCancel={uploads.cancel}
+          onCancelAll={uploads.cancelAll}
+          onClear={() => {
+            setTransfersVisible(false);
+            clearSettled();
+          }}
+        />
+      )}
 
-      {toast && <Toast toast={toast} onDismiss={() => setToast(null)} />}
+      {canWrite && (
+        <NotificationCenter
+          history={uploads.history}
+          unseenCount={uploads.unseenCount}
+          open={notificationsOpen}
+          onToggle={toggleNotifications}
+          onClear={uploads.clearHistory}
+        />
+      )}
+
+      {toast && <Toast toast={toast} onDismiss={dismissToast} />}
 
       <input
         ref={fileInputRef}

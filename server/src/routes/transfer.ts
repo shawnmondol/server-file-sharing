@@ -13,12 +13,10 @@ import {
   normalizeRelative,
   PathError,
   resolveExisting,
+  TEMP_PREFIX,
   toRelative,
 } from '../lib/paths.js';
 import { getThumbnail } from '../lib/thumbnails.js';
-
-/** Temp files are dotfiles so an interrupted upload never shows in the gallery. */
-export const UPLOAD_TEMP_PREFIX = '.fileshare-upload-';
 
 /**
  * RFC 6266 filename, ASCII fallback plus a UTF-8 form so names with accents or
@@ -249,7 +247,7 @@ export default async function transferRoutes(app: FastifyInstance): Promise<void
           // Write beside the destination, not in DATA_DIR: the final rename is
           // then guaranteed to be same-filesystem, and therefore atomic.
           const suffix = crypto.randomBytes(8).toString('hex');
-          temporary = path.join(directory, `${UPLOAD_TEMP_PREFIX}${suffix}.tmp`);
+          temporary = path.join(directory, `${TEMP_PREFIX}${suffix}.tmp`);
 
           await pipeline(part.file, createWriteStream(temporary));
 

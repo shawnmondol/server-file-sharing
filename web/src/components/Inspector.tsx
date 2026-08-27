@@ -36,8 +36,8 @@ export function InspectorBody({
   onDelete,
   onPreview,
 }: Omit<Props, 'onClose'>) {
-  const previewable =
-    !entry.isDirectory && (entry.category === 'image' || entry.category === 'video');
+  // The server decides which files have a viewer at all.
+  const previewable = entry.preview !== null;
 
   return (
     <>

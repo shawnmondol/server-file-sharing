@@ -15,7 +15,14 @@ import {
   type SortDirection,
   type SortKey,
 } from '../lib/library.js';
-import { normalizeRelative, PathError, resolveExisting, resolveNew, toRelative } from '../lib/paths.js';
+import {
+  findAvailableName,
+  normalizeRelative,
+  PathError,
+  resolveExisting,
+  resolveNew,
+  toRelative,
+} from '../lib/paths.js';
 
 interface BrowseQuery {
   path?: string;
@@ -121,6 +128,73 @@ export default async function fileRoutes(app: FastifyInstance): Promise<void> {
 
       reply.code(201);
       return { path: toRelative(target) };
+    },
+  );
+
+  /**
+   * Move entries into another folder — what dragging a tile onto a folder in
+   * the gallery does. Like delete, failures are reported per path so one
+   * stubborn file does not strand the rest of a multi-file drag.
+   */
+  app.post<{ Body: { paths?: string[]; destination?: string } }>(
+    '/api/move',
+    { preHandler: requireWrite },
+    async (request) => {
+      const requested = request.body?.paths;
+      if (!Array.isArray(requested) || requested.length === 0) {
+        throw new PathError('No paths given');
+      }
+      if (requested.length > 500) {
+        throw new PathError('Too many paths in one request (max 500)');
+      }
+
+      const destination = normalizeRelative(request.body?.destination);
+      const destinationAbsolute = await resolveExisting(destination);
+      const destinationStat = await fs.stat(destinationAbsolute);
+      if (!destinationStat.isDirectory()) {
+        throw new PathError('The destination is not a folder');
+      }
+
+      const moved: Array<{ from: string; to: string }> = [];
+      const failed: Array<{ path: string; reason: string }> = [];
+
+      for (const raw of requested) {
+        let relPath = '';
+        try {
+          relPath = normalizeRelative(raw);
+          if (!relPath) throw new PathError('The share root cannot be moved');
+
+          const parent = relPath.includes('/') ? relPath.slice(0, relPath.lastIndexOf('/')) : '';
+          if (parent === destination) {
+            throw new PathError('It is already in that folder');
+          }
+          // Dropping a folder onto itself or onto one of its own descendants
+          // would move the tree inside itself and orphan everything under it.
+          if (destination === relPath || destination.startsWith(`${relPath}/`)) {
+            throw new PathError('A folder cannot be moved into itself');
+          }
+
+          const source = await resolveExisting(relPath);
+          const name = path.basename(relPath);
+          const finalName = await findAvailableName(destinationAbsolute, name);
+          const target = path.join(destinationAbsolute, finalName);
+
+          await fs.rename(source, target);
+          forgetPath(relPath);
+          moved.push({ from: relPath, to: toRelative(target) });
+        } catch (error) {
+          failed.push({
+            path: relPath || String(raw),
+            reason: error instanceof Error ? error.message : 'Move failed',
+          });
+        }
+      }
+
+      request.log.info(
+        { user: request.identity.login, moved: moved.length, destination },
+        'move',
+      );
+      return { moved, failed };
     },
   );
 

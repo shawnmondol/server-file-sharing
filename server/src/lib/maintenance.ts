@@ -1,15 +1,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config.js';
-import { UPLOAD_TEMP_PREFIX } from '../routes/transfer.js';
+import { TEMP_PREFIX } from './paths.js';
 
 const SWEEP_DEPTH_LIMIT = 12;
 const ORPHAN_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Remove upload temp files left behind by a crash or a power cut. They are
- * dotfiles so they never appeared in the gallery, but they still occupy disk.
- * One bounded walk at startup is enough — nothing else creates them.
+ * Remove the temp files an upload or an in-app save left behind after a crash
+ * or a power cut. They are dotfiles so they never appeared in the gallery, but
+ * they still occupy disk. One bounded walk at startup is enough.
  */
 export async function sweepOrphanedUploads(): Promise<number> {
   const cutoff = Date.now() - ORPHAN_AGE_MS;
@@ -31,7 +31,7 @@ export async function sweepOrphanedUploads(): Promise<number> {
         await walk(full, depth + 1);
         continue;
       }
-      if (!entry.name.startsWith(UPLOAD_TEMP_PREFIX)) continue;
+      if (!entry.name.startsWith(TEMP_PREFIX)) continue;
 
       try {
         const stat = await fs.stat(full);

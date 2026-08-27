@@ -11,6 +11,7 @@ import { PathError } from './lib/paths.js';
 import { pruneThumbnailCache } from './lib/thumbnails.js';
 import fileRoutes from './routes/files.js';
 import sessionRoutes from './routes/session.js';
+import textRoutes from './routes/text.js';
 import transferRoutes from './routes/transfer.js';
 
 const app = Fastify({
@@ -53,6 +54,7 @@ await app.register(multipart, {
 await app.register(sessionRoutes);
 await app.register(fileRoutes);
 await app.register(transferRoutes);
+await app.register(textRoutes);
 
 // --- Static frontend ---------------------------------------------------------
 if (fs.existsSync(config.webDist)) {

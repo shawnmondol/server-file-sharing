@@ -14,6 +14,13 @@ const realShareRoot = await fs.realpath(config.shareRoot);
 
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/;
 
+/**
+ * Prefix for the temp files that atomic writes rename over. They are dotfiles
+ * so an interrupted upload or save never shows up in the gallery, and the
+ * startup sweep uses this prefix to find the ones a crash left behind.
+ */
+export const TEMP_PREFIX = '.fileshare-upload-';
+
 /** Reject anything that cannot be a single, well-behaved path segment. */
 export function assertSafeSegment(name: string): string {
   const trimmed = name.trim();

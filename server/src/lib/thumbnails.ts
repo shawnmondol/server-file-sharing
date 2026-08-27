@@ -5,7 +5,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { config } from '../config.js';
 import { getThumbState, setThumbState } from './db.js';
-import { classify, isSharpReadable } from './filetypes.js';
+import { thumbnailKind, type ThumbKind } from './filetypes.js';
 
 /**
  * Thumbnails are generated lazily on first request and cached to disk under a
@@ -91,8 +91,127 @@ async function generateVideoThumb(source: string, destination: string): Promise<
   );
 }
 
+/**
+ * First page of a PDF, via poppler's pdftoppm. `-singlefile` makes it write
+ * `<prefix>.jpg` rather than appending a page number, so the output path is
+ * predictable.
+ */
+async function generatePdfThumb(source: string, destination: string): Promise<void> {
+  const prefix = destination.replace(/\.jpg$/, '');
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(
+      config.pdftoppmPath,
+      ['-jpeg', '-f', '1', '-l', '1', '-singlefile', '-scale-to', String(config.thumbnailSize), source, prefix],
+      { stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    let stderr = '';
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-2000);
+    });
+
+    const timer = setTimeout(() => child.kill('SIGKILL'), 20_000);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`pdftoppm exited with ${code}: ${stderr.trim()}`));
+    });
+  });
+}
+
+const TEXT_PREVIEW_LINES = 16;
+const TEXT_PREVIEW_COLUMNS = 46;
+/** Enough bytes to fill the preview even if the file opens with long lines. */
+const TEXT_SAMPLE_BYTES = 8 * 1024;
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * A page-of-text thumbnail: the opening lines of the file drawn onto a sheet,
+ * so a folder of notes reads as a folder of notes rather than a wall of
+ * identical "TXT" badges. Rendered as an SVG and rasterised by sharp, which
+ * this build of libvips can do through librsvg — no extra binary needed.
+ */
+async function generateTextThumb(source: string, destination: string): Promise<void> {
+  const handle = await fs.open(source, 'r');
+  let sample: string;
+  try {
+    const buffer = Buffer.alloc(TEXT_SAMPLE_BYTES);
+    const { bytesRead } = await handle.read(buffer, 0, TEXT_SAMPLE_BYTES, 0);
+    const head = buffer.subarray(0, bytesRead);
+    // A NUL byte means this is not really text, whatever the extension said.
+    if (head.includes(0)) throw new Error('not text');
+    sample = head.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+
+  const lines = sample
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .slice(0, TEXT_PREVIEW_LINES)
+    .map((line) => {
+      // Tabs would otherwise collapse to a single glyph width in SVG text.
+      const expanded = line.replace(/\t/g, '  ');
+      return expanded.length > TEXT_PREVIEW_COLUMNS
+        ? `${expanded.slice(0, TEXT_PREVIEW_COLUMNS - 1)}…`
+        : expanded;
+    });
+
+  // Square, because the gallery tile is square and crops with object-cover —
+  // a page-shaped sheet would lose its opening lines to the crop, which are
+  // the only part worth showing.
+  const width = config.thumbnailSize;
+  const height = width;
+  const fontSize = width / 34;
+  const lineHeight = fontSize * 1.5;
+  const marginX = width * 0.09;
+  const marginTop = height * 0.1;
+
+  const rows = lines
+    .map((line, index) =>
+      line.trim() === ''
+        ? ''
+        : `<text x="${marginX.toFixed(1)}" y="${(marginTop + index * lineHeight).toFixed(1)}">${escapeXml(line)}</text>`,
+    )
+    .filter(Boolean)
+    .join('');
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect width="${width}" height="${height}" fill="#ffffff"/>` +
+    `<g font-family="DejaVu Sans Mono, Menlo, Consolas, monospace" font-size="${fontSize.toFixed(2)}" fill="#3a3a3f" xml:space="preserve">${rows}</g>` +
+    `</svg>`;
+
+  await sharp(Buffer.from(svg), { density: 96 })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 78, mozjpeg: true })
+    .toFile(destination);
+}
+
 export interface ThumbnailResult {
   path: string;
+}
+
+/**
+ * The thumbnail kind for a file, narrowed to what this deployment can actually
+ * render — video needs ffmpeg and PDF needs poppler, and either can be turned
+ * off in `.env`. Shared with the browse listing so a tile only asks for a
+ * thumbnail the server is able to produce.
+ */
+export function supportedThumbnailKind(filename: string): ThumbKind | null {
+  const kind = thumbnailKind(filename);
+  if (kind === 'video' && !config.enableVideoThumbnails) return null;
+  if (kind === 'pdf' && !config.enablePdfThumbnails) return null;
+  return kind;
 }
 
 /**
@@ -106,10 +225,8 @@ export async function getThumbnail(
   mtimeMs: number,
   size: number,
 ): Promise<ThumbnailResult | null> {
-  const { category } = classify(path.basename(relPath));
-  if (category !== 'image' && category !== 'video') return null;
-  if (category === 'video' && !config.enableVideoThumbnails) return null;
-  if (category === 'image' && !isSharpReadable(relPath)) return null;
+  const kind = supportedThumbnailKind(path.basename(relPath));
+  if (!kind) return null;
 
   const key = cacheKey(relPath, mtimeMs, size);
   const destination = cachePath(key);
@@ -135,11 +252,15 @@ export async function getThumbnail(
     }
 
     await fs.mkdir(path.dirname(destination), { recursive: true });
-    const temporary = `${destination}.${process.pid}.tmp`;
+    // pdftoppm derives its output name from the prefix we hand it, so the
+    // temp file has to keep the .jpg suffix for every renderer alike.
+    const temporary = `${destination}.${process.pid}.tmp.jpg`;
 
     try {
-      if (category === 'image') await generateImageThumb(absolutePath, temporary);
-      else await generateVideoThumb(absolutePath, temporary);
+      if (kind === 'image') await generateImageThumb(absolutePath, temporary);
+      else if (kind === 'video') await generateVideoThumb(absolutePath, temporary);
+      else if (kind === 'pdf') await generatePdfThumb(absolutePath, temporary);
+      else await generateTextThumb(absolutePath, temporary);
 
       // Rename is atomic within a filesystem, so readers never see a partial file.
       await fs.rename(temporary, destination);

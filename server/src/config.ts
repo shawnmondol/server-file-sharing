@@ -83,7 +83,15 @@ export const config = {
 
   enableVideoThumbnails: bool('ENABLE_VIDEO_THUMBNAILS', true),
   ffmpegPath: str('FFMPEG_PATH', 'ffmpeg'),
+  // PDF page rendering needs poppler-utils; without it PDFs simply fall back
+  // to the extension badge, exactly as an unreadable video does.
+  enablePdfThumbnails: bool('ENABLE_PDF_THUMBNAILS', true),
+  pdftoppmPath: str('PDFTOPPM_PATH', 'pdftoppm'),
   thumbnailSize: int('THUMBNAIL_SIZE', 480),
+
+  // Ceiling for the in-app text viewer/editor. Anything larger is download
+  // only: the whole file has to fit in a textarea and go back as JSON.
+  maxTextBytes: int('MAX_TEXT_BYTES', 2 * 1024 * 1024),
 
   webDist: path.join(repoRoot, 'web', 'dist'),
 } as const;
