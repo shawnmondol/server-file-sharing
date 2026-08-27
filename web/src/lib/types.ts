@@ -48,6 +48,9 @@ export interface DiskUsage {
   usedBytes: number;
 }
 
+/** Grid of tiles, or a details list. A display preference, not a location. */
+export type ViewMode = 'grid' | 'list';
+
 export type SortKey = 'name' | 'size' | 'date';
 export type SortDirection = 'asc' | 'desc';
 

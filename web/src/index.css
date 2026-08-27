@@ -32,6 +32,12 @@
   --placeholder: #ececed;
   --shadow-sheet: 0 22px 50px rgba(0, 0, 0, 0.28);
 
+  /* Folders and archives are drawn as solid objects rather than outlines. */
+  --folder-back: #3f96e8;
+  --folder-front: #63b3f7;
+  --archive-back: #cf8b33;
+  --archive-front: #eeb257;
+
   color-scheme: light;
 }
 
@@ -57,6 +63,11 @@
     --warning-text: #f5c451;
     --placeholder: #2c2c2e;
     --shadow-sheet: 0 22px 50px rgba(0, 0, 0, 0.6);
+
+    --folder-back: #2d7ac4;
+    --folder-front: #4e9fe0;
+    --archive-back: #a86d24;
+    --archive-front: #cf9440;
 
     color-scheme: dark;
   }

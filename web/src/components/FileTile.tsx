@@ -1,9 +1,10 @@
 import { memo, useState } from 'react';
+import { useDropTarget } from '../hooks/useDropTarget';
 import { thumbnailUrl } from '../lib/api';
-import { isEntryDrag, readDragPayload, setDragPayload } from '../lib/dnd';
+import { setDragPayload } from '../lib/dnd';
 import { badgeText, entrySubtitle, formatDate } from '../lib/format';
 import type { Entry } from '../lib/types';
-import { CategoryIcon, CheckIcon } from './Icons';
+import { CategoryIcon, CheckIcon, ContainerIcon, isContainer } from './Icons';
 
 interface Props {
   entry: Entry;
@@ -41,12 +42,10 @@ function Thumbnail({ entry }: { entry: Entry }) {
 
   return (
     <div className="flex size-full flex-col items-center justify-center gap-1.5 text-[var(--text-muted)]">
-      <CategoryIcon category={entry.category} size={entry.isDirectory ? 30 : 26} />
-      {!entry.isDirectory && (
-        <span className="text-[9.5px] font-semibold tracking-wide text-[var(--text-faint)]">
-          {badgeText(entry.name, entry.category)}
-        </span>
-      )}
+      <CategoryIcon category={entry.category} size={26} />
+      <span className="text-[9.5px] font-semibold tracking-wide text-[var(--text-faint)]">
+        {badgeText(entry.name, entry.category)}
+      </span>
     </div>
   );
 }
@@ -69,10 +68,10 @@ export const FileTile = memo(function FileTile({
 
   // A folder accepts a drop unless it is itself being dragged, which would
   // mean dropping it into itself.
-  const isDropTarget = canMove && entry.isDirectory && !dragging;
-  // dragenter/dragleave fire per child element, so track depth, not a boolean.
-  const [dropDepth, setDropDepth] = useState(0);
-  const dropping = isDropTarget && dropDepth > 0;
+  const drop = useDropTarget(canMove && entry.isDirectory && !dragging, (paths) =>
+    onDropInto(entry, paths),
+  );
+  const container = isContainer(entry);
 
   return (
     <button
@@ -91,30 +90,8 @@ export const FileTile = memo(function FileTile({
       }}
       draggable={canMove}
       onDragStart={(event) => setDragPayload(event.dataTransfer, onDragStart(entry))}
-      onDragEnd={() => {
-        setDropDepth(0);
-        onDragEnd();
-      }}
-      onDragEnter={(event) => {
-        if (!isDropTarget || !isEntryDrag(event.dataTransfer)) return;
-        setDropDepth((depth) => depth + 1);
-      }}
-      onDragOver={(event) => {
-        if (!isDropTarget || !isEntryDrag(event.dataTransfer)) return;
-        // Without preventDefault the browser refuses the drop outright.
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
-      }}
-      onDragLeave={() => setDropDepth((depth) => Math.max(0, depth - 1))}
-      onDrop={(event) => {
-        if (!isDropTarget || !isEntryDrag(event.dataTransfer)) return;
-        event.preventDefault();
-        // Stop the window-level upload handler from seeing this as a file drop.
-        event.stopPropagation();
-        setDropDepth(0);
-        const paths = readDragPayload(event.dataTransfer);
-        if (paths.length > 0) onDropInto(entry, paths);
-      }}
+      onDragEnd={onDragEnd}
+      {...drop.handlers}
       className={[
         'group flex flex-col gap-2 rounded-xl p-1.5 text-left outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--accent)]',
         dragging ? 'opacity-40' : '',
@@ -122,24 +99,46 @@ export const FileTile = memo(function FileTile({
     >
       <div
         className={[
-          'relative aspect-square w-full overflow-hidden rounded-xl bg-[var(--placeholder)] transition-shadow',
-          dropping
-            ? 'ring-[2.5px] ring-[var(--accent)] ring-offset-2 ring-offset-[var(--surface)]'
-            : selected
-              ? 'ring-[2.5px] ring-[var(--accent)]'
-              : 'ring-1 ring-[var(--border-subtle)] group-hover:ring-[var(--border)]',
+          'relative flex aspect-square w-full items-center justify-center overflow-hidden rounded-xl transition-colors',
+          // A container's glyph is the identifier, so it gets no frame — only
+          // a tint when it is selected or being dropped onto.
+          container
+            ? drop.active
+              ? 'bg-[var(--accent)]'
+              : selected
+                ? 'bg-[var(--accent-soft)] ring-[2.5px] ring-[var(--accent)]'
+                : 'group-hover:bg-[var(--surface-hover)]'
+            : [
+                'bg-[var(--placeholder)]',
+                drop.active
+                  ? 'ring-[2.5px] ring-[var(--accent)]'
+                  : selected
+                    ? 'ring-[2.5px] ring-[var(--accent)]'
+                    : 'ring-1 ring-[var(--border-subtle)] group-hover:ring-[var(--border)]',
+              ].join(' '),
         ].join(' ')}
       >
-        <Thumbnail entry={entry} />
+        {container ? (
+          // Sized as a share of the tile so it stays as dominant as a
+          // full-bleed thumbnail at every grid track width.
+          <ContainerIcon entry={entry} className="h-auto w-[78%]" />
+        ) : (
+          <Thumbnail entry={entry} />
+        )}
 
         {/* While a drag hovers, the folder says what dropping will do. */}
-        {dropping && (
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[color-mix(in_srgb,var(--accent)_78%,transparent)] text-[11px] font-semibold text-white">
+        {drop.active && (
+          <span
+            className={[
+              'pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-white',
+              container ? '' : 'bg-[color-mix(in_srgb,var(--accent)_78%,transparent)]',
+            ].join(' ')}
+          >
             Move here
           </span>
         )}
 
-        {selected && !dropping && (
+        {selected && !drop.active && (
           <span className="absolute right-1.5 top-1.5 flex size-5 items-center justify-center rounded-full bg-[var(--accent)] text-white shadow">
             <CheckIcon size={12} />
           </span>

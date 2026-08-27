@@ -14,6 +14,7 @@ import type { Details, Entry, Session } from './lib/types';
 import { useBrowse } from './hooks/useBrowse';
 import { useConnection } from './hooks/useConnection';
 import { useUploads } from './hooks/useUploads';
+import { useViewMode } from './hooks/useViewMode';
 import { Breadcrumbs } from './components/Breadcrumbs';
 import { ConfirmDialog } from './components/ConfirmDialog';
 import { DropOverlay } from './components/DropOverlay';
@@ -21,7 +22,7 @@ import { EmptyState } from './components/EmptyState';
 import { FilterChips } from './components/FilterChips';
 import { Gallery } from './components/Gallery';
 import { InspectorSheet, InspectorSidebar } from './components/Inspector';
-import { NotificationCenter } from './components/NotificationCenter';
+import { NotificationBell, NotificationPanel } from './components/NotificationCenter';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PreviewOverlay } from './components/PreviewOverlay';
 import { PromptDialog } from './components/PromptDialog';
@@ -30,6 +31,7 @@ import { StatusBar } from './components/StatusBar';
 import { TitleBar } from './components/TitleBar';
 import { Toast, type ToastMessage } from './components/Toast';
 import { TransferPanel } from './components/TransferPanel';
+import { ViewToggle } from './components/ViewToggle';
 
 /** How long the upload toast lingers once every transfer has settled. */
 const TOAST_LINGER_MS = 4000;
@@ -41,6 +43,7 @@ export function App() {
 
   const { state, result, loading, error, update, navigate, reload } = useBrowse();
   const { status: connection, recheck } = useConnection();
+  const [view, setView] = useViewMode();
   const online = connection !== 'offline';
 
   const notify = useCallback((text: string, tone: ToastMessage['tone'] = 'error') => {
@@ -451,6 +454,7 @@ export function App() {
     <div className="flex h-full flex-col bg-[var(--surface)]">
       <TitleBar
         hostname={session?.server.hostname ?? ''}
+        atRoot={state.path === '' && state.query === ''}
         connection={connection}
         query={state.query}
         sort={state.sort}
@@ -461,6 +465,7 @@ export function App() {
         onDirectionToggle={() => update({ direction: state.direction === 'asc' ? 'desc' : 'asc' })}
         onUploadClick={() => fileInputRef.current?.click()}
         onNewFolderClick={() => setCreatingFolder(true)}
+        onHomeClick={() => navigate('')}
       />
 
       {!online && (
@@ -483,6 +488,8 @@ export function App() {
             />
           )}
         </div>
+        <ViewToggle view={view} onChange={setView} />
+
         <button
           type="button"
           onClick={() => {
@@ -565,6 +572,7 @@ export function App() {
               entries={entries}
               selected={selected}
               showPaths={searching}
+              view={view}
               canMove={canMove}
               draggingPaths={draggingPaths}
               onSelect={handleSelect}
@@ -576,25 +584,34 @@ export function App() {
           )}
         </main>
 
-        {inspectorEntry && (
-          <InspectorSidebar
-            entry={inspectorEntry}
-            details={details}
-            detailsLoading={detailsLoading}
-            canWrite={canWrite}
-            online={online}
-            onDownload={() => void download([inspectorEntry])}
-            onDelete={() => setPendingDelete([inspectorEntry])}
-            onPreview={() => setPreviewEntry(inspectorEntry)}
-            onClose={() => setSelected(new Set())}
-          />
-        )}
+        {/* Always mounted, so selecting a tile never reflows the gallery. */}
+        <InspectorSidebar
+          entry={inspectorEntry}
+          selectedCount={selectedEntries.length}
+          details={details}
+          detailsLoading={detailsLoading}
+          canWrite={canWrite}
+          online={online}
+          onDownload={() => inspectorEntry && void download([inspectorEntry])}
+          onDelete={() => inspectorEntry && setPendingDelete([inspectorEntry])}
+          onPreview={() => setPreviewEntry(inspectorEntry)}
+          onClose={() => setSelected(new Set())}
+        />
       </div>
 
       <StatusBar
         itemCount={result?.totalCount ?? 0}
         totalBytes={result?.totalBytes ?? 0}
         disk={disk}
+        trailing={
+          canWrite && (
+            <NotificationBell
+              unseenCount={uploads.unseenCount}
+              open={notificationsOpen}
+              onToggle={toggleNotifications}
+            />
+          )
+        }
       />
 
       {sheetEntry && !selectMode && (
@@ -668,9 +685,8 @@ export function App() {
       )}
 
       {canWrite && (
-        <NotificationCenter
+        <NotificationPanel
           history={uploads.history}
-          unseenCount={uploads.unseenCount}
           open={notificationsOpen}
           onToggle={toggleNotifications}
           onClear={uploads.clearHistory}

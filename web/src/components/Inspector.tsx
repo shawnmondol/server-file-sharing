@@ -1,7 +1,7 @@
 import { previewUrl, thumbnailUrl } from '../lib/api';
 import { formatBytes, formatFullDate } from '../lib/format';
 import type { Details, Entry } from '../lib/types';
-import { CategoryIcon, CloseIcon, DownloadIcon, TrashIcon } from './Icons';
+import { CategoryIcon, CloseIcon, ContainerIcon, DownloadIcon, isContainer, TrashIcon } from './Icons';
 
 interface Props {
   entry: Entry;
@@ -46,9 +46,15 @@ export function InspectorBody({
         onClick={onPreview}
         disabled={!previewable}
         aria-label={previewable ? `Preview ${entry.name}` : undefined}
-        className="flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl bg-[var(--placeholder)] text-[var(--text-muted)] disabled:cursor-default"
+        className={[
+          'flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl text-[var(--text-muted)] disabled:cursor-default',
+          // A container's glyph carries its own colour and needs no backdrop.
+          isContainer(entry) ? '' : 'bg-[var(--placeholder)]',
+        ].join(' ')}
       >
-        {entry.hasThumbnail ? (
+        {isContainer(entry) ? (
+          <ContainerIcon entry={entry} className="h-auto w-[42%]" />
+        ) : entry.hasThumbnail ? (
           <img
             src={entry.category === 'image' ? previewUrl(entry.path) : thumbnailUrl(entry.path)}
             alt=""
@@ -123,11 +129,41 @@ export function InspectorBody({
   );
 }
 
-/** Desktop: a Finder-style column pinned to the right of the gallery. */
-export function InspectorSidebar(props: Props) {
+function InspectorPlaceholder({ selectedCount }: { selectedCount: number }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+      <div className="flex size-11 items-center justify-center rounded-xl bg-[var(--surface-hover)] text-[var(--text-faint)]">
+        <CategoryIcon category="other" size={22} />
+      </div>
+      <p className="mt-3 text-[12.5px] leading-relaxed text-[var(--text-muted)]">
+        {selectedCount > 1
+          ? `${selectedCount} items selected`
+          : 'Select a file to see its details'}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Desktop: a Finder-style column pinned to the right of the gallery.
+ *
+ * The column is always present, even with nothing selected. It used to mount
+ * on selection, which narrowed the gallery and reflowed the grid between the
+ * two halves of a double-click — so the second click landed on whichever tile
+ * had slid under the pointer, and the wrong file opened.
+ */
+export function InspectorSidebar({
+  entry,
+  selectedCount,
+  ...rest
+}: Omit<Props, 'entry'> & { entry: Entry | null; selectedCount: number }) {
   return (
     <aside className="scroll-pane hidden w-[264px] shrink-0 border-l border-[var(--border)] bg-[var(--surface-raised)] p-4 lg:block">
-      <InspectorBody {...props} />
+      {entry ? (
+        <InspectorBody entry={entry} {...rest} />
+      ) : (
+        <InspectorPlaceholder selectedCount={selectedCount} />
+      )}
     </aside>
   );
 }

@@ -13,15 +13,19 @@ immediately, and anything the app deletes is gone from disk.
 
 ## What it does
 
-- **Gallery view** — thumbnail grid with real image previews, video poster
+- **Two views** — a thumbnail grid with real image previews, video poster
   frames, first-page PDF renders, and a page-of-text preview for notes, code,
-  and config; folder drill-in and a breadcrumb trail.
+  and config; or a details list with kind, size, and modified columns. The
+  choice is remembered per browser. Folders and archives are drawn as solid,
+  unframed icons in both, so a container never reads as a document.
 - **Filters** — type chips generated from what is actually in the folder, across
   17 categories (images, video, audio, documents, spreadsheets, presentations,
   archives, code, text, data, e-books, fonts, design, disk images, apps, and so
   on) with live counts.
 - **Sorting** — name, size, or date added, ascending or descending. Folders
   always lead.
+- **Getting home** — the title bar doubles as a link back to the top-level
+  folder, and goes inert once you are there.
 - **Search** — recursive filename search from the current folder down.
 - **Upload** — drag and drop anywhere, or the Upload button. Streams to disk with
   per-file progress, transfer rate, ETA, cancel, and automatic rename on name
@@ -40,8 +44,8 @@ immediately, and anything the app deletes is gone from disk.
 - **Inspector** — size, kind, dates, owner and mode, full path, SHA-256, and
   entry count for ZIP archives. A sidebar on desktop, a sheet on phones.
 - **Upload notifications** — the transfer panel retires a few seconds after the
-  last file lands; a bell in the corner keeps the history, including failures,
-  across reloads.
+  last file lands; a bell in the status bar, beside the disk gauge, keeps the
+  history — including failures — across reloads without covering the gallery.
 - **Offline state** — when the tailnet route drops, the cached listing stays
   visible and write actions are disabled rather than failing silently.
 
@@ -435,7 +439,13 @@ All routes require an identity except `GET /api/health`.
   version intact. The editor sends back the mtime it loaded; if the file
   changed in between, the save is refused rather than silently clobbering it.
 - **Upload history** lives in `localStorage`, so it is per-browser and per-device
-  rather than shared across the tailnet.
+  rather than shared across the tailnet. The grid/list choice is stored the same
+  way; the folder, search, and filters stay in the URL, since those describe
+  what you are looking at and are worth sharing.
+- **The inspector column is always present** on wide screens, empty until you
+  select something. Mounting it on selection used to narrow the gallery and
+  reflow the grid between the two halves of a double-click, so the second click
+  could land on a tile that had slid under the pointer and open the wrong file.
 - **Archive entry counts** are read from the ZIP central directory. `.tar.gz` and
   friends would have to be decompressed end to end, so they are left blank.
 - **Search** walks up to 12 levels deep and 20,000 entries from the current

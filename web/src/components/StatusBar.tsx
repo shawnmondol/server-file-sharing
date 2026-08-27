@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { formatBytes } from '../lib/format';
 import type { DiskUsage } from '../lib/types';
 
@@ -5,14 +6,16 @@ interface Props {
   itemCount: number;
   totalBytes: number;
   disk: DiskUsage;
+  /** Rendered at the far right, after the disk gauge. */
+  trailing?: ReactNode;
 }
 
-export function StatusBar({ itemCount, totalBytes, disk }: Props) {
+export function StatusBar({ itemCount, totalBytes, disk, trailing }: Props) {
   const usedFraction = disk.totalBytes > 0 ? disk.usedBytes / disk.totalBytes : 0;
 
   return (
     <footer
-      className="flex items-center gap-3 border-t border-[var(--border)] bg-[var(--surface-raised)] px-4 py-2 text-[11px] text-[var(--text-muted)]"
+      className="flex items-center gap-2.5 border-t border-[var(--border)] bg-[var(--surface-raised)] py-1.5 pl-4 pr-2.5 text-[11px] text-[var(--text-muted)]"
       style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
     >
       <span className="shrink-0">
@@ -37,6 +40,16 @@ export function StatusBar({ itemCount, totalBytes, disk }: Props) {
           {formatBytes(disk.usedBytes)} of {formatBytes(disk.totalBytes)}
         </span>
       </div>
+
+      {trailing && (
+        <>
+          <span
+            aria-hidden="true"
+            className="h-3.5 w-px shrink-0 bg-[var(--border)]"
+          />
+          {trailing}
+        </>
+      )}
     </footer>
   );
 }

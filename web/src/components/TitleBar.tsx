@@ -5,6 +5,7 @@ import { ArrowUpIcon, CloseIcon, NewFolderIcon, SearchIcon, UploadIcon } from '.
 
 interface Props {
   hostname: string;
+  atRoot: boolean;
   connection: Connection;
   query: string;
   sort: SortKey;
@@ -15,6 +16,7 @@ interface Props {
   onDirectionToggle: () => void;
   onUploadClick: () => void;
   onNewFolderClick: () => void;
+  onHomeClick: () => void;
 }
 
 const SORTS: Array<{ key: SortKey; label: string }> = [
@@ -44,6 +46,7 @@ function ConnectionDot({ status }: { status: Connection }) {
 
 export function TitleBar({
   hostname,
+  atRoot,
   connection,
   query,
   sort,
@@ -54,6 +57,7 @@ export function TitleBar({
   onDirectionToggle,
   onUploadClick,
   onNewFolderClick,
+  onHomeClick,
 }: Props) {
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -80,8 +84,19 @@ export function TitleBar({
         className="flex items-center gap-3 px-4 pb-2"
         style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}
       >
-        <h1 className="min-w-0 flex-1 truncate text-[13px] font-semibold sm:text-center">
-          Files{hostname ? ` — ${hostname}` : ''}
+        {/* The title doubles as the way home. Inert at the root, so it never
+            looks like a control that does nothing. */}
+        <h1 className="flex min-w-0 flex-1 sm:justify-center">
+          <button
+            type="button"
+            onClick={onHomeClick}
+            disabled={atRoot}
+            aria-label={atRoot ? undefined : 'Go to the top-level folder'}
+            title={atRoot ? undefined : 'Go to the top-level folder'}
+            className="min-w-0 truncate rounded px-1 text-[13px] font-semibold outline-none hover:text-[var(--accent)] focus-visible:ring-2 focus-visible:ring-[var(--accent)] disabled:cursor-default disabled:hover:text-[var(--text)]"
+          >
+            Private Cloud Storage{hostname ? ` — ${hostname}` : ''}
+          </button>
         </h1>
         <ConnectionDot status={connection} />
       </div>

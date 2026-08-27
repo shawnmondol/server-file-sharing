@@ -102,6 +102,56 @@ export const RetryIcon = (props: IconProps) => (
   </Icon>
 );
 
+/**
+ * Folders and archives are containers, not documents: at tile size they read
+ * far better as a solid, coloured object than as a small outline sitting in a
+ * grey placeholder. These two are filled and two-tone for that reason, and are
+ * the only glyphs that carry their own colour rather than `currentColor`.
+ */
+export const FolderSolidIcon = ({ size = 20, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" {...rest}>
+    {/* The back panel peeks above the front, which is what reads as "folder". */}
+    <path
+      d="M2 6.6A2.6 2.6 0 0 1 4.6 4h4.05a2.6 2.6 0 0 1 1.84.76L12 6.28h7.4A2.6 2.6 0 0 1 22 8.88V9H2z"
+      fill="var(--folder-back)"
+    />
+    <path
+      d="M2 8.7A1.7 1.7 0 0 1 3.7 7h16.6A1.7 1.7 0 0 1 22 8.7v8.7a2.6 2.6 0 0 1-2.6 2.6H4.6A2.6 2.6 0 0 1 2 17.4z"
+      fill="var(--folder-front)"
+    />
+  </svg>
+);
+
+export const ArchiveSolidIcon = ({ size = 20, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true" {...rest}>
+    {/* Lid, body, and clasp — a package rather than a document. */}
+    <path
+      d="M2.6 7.4 4.3 4.3A1.6 1.6 0 0 1 5.7 3.5h12.6a1.6 1.6 0 0 1 1.4.8l1.7 3.1z"
+      fill="var(--archive-back)"
+    />
+    <path
+      d="M2.6 8.9h18.8v9.1a2.5 2.5 0 0 1-2.5 2.5H5.1a2.5 2.5 0 0 1-2.5-2.5z"
+      fill="var(--archive-front)"
+    />
+    <path d="M10.1 8.9h3.8v3.1a.8.8 0 0 1-.8.8h-2.2a.8.8 0 0 1-.8-.8z" fill="var(--archive-back)" />
+  </svg>
+);
+
+export const GridViewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <rect x="4" y="4" width="7" height="7" rx="1.6" />
+    <rect x="13" y="4" width="7" height="7" rx="1.6" />
+    <rect x="4" y="13" width="7" height="7" rx="1.6" />
+    <rect x="13" y="13" width="7" height="7" rx="1.6" />
+  </Icon>
+);
+
+export const ListViewIcon = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M4 6.5h16M4 12h16M4 17.5h16" />
+  </Icon>
+);
+
 export const BellIcon = (props: IconProps) => (
   <Icon {...props}>
     <path d="M18 15V10a6 6 0 0 0-12 0v5l-1.6 2.4a.5.5 0 0 0 .42.77h14.36a.5.5 0 0 0 .42-.77z" />
@@ -257,4 +307,26 @@ const GLYPHS: Record<Category, (props: IconProps) => ReactElement> = {
 export function CategoryIcon({ category, ...rest }: IconProps & { category: Category }) {
   const Glyph = GLYPHS[category] ?? FileGlyph;
   return <Glyph {...rest} />;
+}
+
+/**
+ * Folders and archives are containers: everywhere they appear they are drawn
+ * as a solid, unframed object rather than an outline in a placeholder box, so
+ * the glyph itself is the identifier.
+ */
+export function isContainer(entry: { isDirectory: boolean; category: Category }): boolean {
+  return entry.isDirectory || entry.category === 'archive';
+}
+
+export function ContainerIcon({
+  entry,
+  className,
+}: {
+  entry: { isDirectory: boolean; category: Category };
+  className?: string;
+}) {
+  const Glyph = entry.isDirectory ? FolderSolidIcon : ArchiveSolidIcon;
+  // The class wins over the width/height attributes, so the caller decides
+  // whether this scales with its tile or sits at a fixed size in a row.
+  return <Glyph className={className} />;
 }
